@@ -40,15 +40,12 @@ RGBLED led;
 
 uint32_t tNow, tLast;
 
-bool touchPressed(uint16_t *x, uint16_t *y)
+bool touchPressed(CYD28_TS_Point &point)
 {
     if (!touch.touched())
         return false;
 
-    CYD28_TS_Point p = touch.getPointScaled();
-
-    *x = p.x;
-    *y = p.y;
+    point = touch.getPointScaled();
 
     return true;
 }
@@ -62,9 +59,9 @@ void setup()
 #endif
     sdcard.begin();
     tft.init();
-    tft.setRotation(1);
+    tft.setRotation(0);
     touch.begin();
-    touch.setRotation(1);
+    touch.setRotation(0);
 
     gui.begin();
     gui.draw();
@@ -86,12 +83,16 @@ void loop()
     
     
     // Touch controller
-    uint16_t x, y;
+    static bool touchWasPressed = false;
+    CYD28_TS_Point point;
 
-    if (touchPressed(&x, &y))
+    bool touched = touchPressed(point);
+    if (touched && !touchWasPressed)
     {
-        gui.touch(x, y);
+        gui.touch(point);
     }
+    touchWasPressed = touched;
+
     if (gui.hasSelectedFile())
     {
         Serial.println(gui.selectedFile());

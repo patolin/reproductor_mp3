@@ -1,5 +1,15 @@
 #include "gui.h"
 #include "CYD28_SD.h"
+#include "CYD28_TouchscreenR.h"
+#include <algorithm>
+
+namespace
+{
+constexpr int kHeaderHeight = 24;
+constexpr int kListRowHeight = 24;
+constexpr int kButtonRows = 3;
+constexpr int kButtonCols = 2;
+}
 
 GUI::GUI(TFT_eSPI &display)
 : tft(display)
@@ -10,6 +20,7 @@ GUI::GUI(TFT_eSPI &display)
     firstVisible=0;
     fileChosen=false;
     statusMessage="Initializing...";
+    lastTapMs=0;
 }
 
 bool GUI::begin()
@@ -34,7 +45,13 @@ void GUI::drawScreen(int screen)
 
 int GUI::visibleRows() const
 {
-    return 8;
+    int buttonAreaHeight = tft.height() / 2;
+    int listHeight = tft.height() - kHeaderHeight - buttonAreaHeight;
+    if (listHeight <= 0)
+        return 1;
+
+    int rows = listHeight / kListRowHeight;
+    return rows > 0 ? rows : 1;
 }
 
 bool GUI::loadDirectory(String path)
@@ -99,6 +116,7 @@ bool GUI::loadDirectory(String path)
     currentPath=path;
     selected=0;
     firstVisible=0;
+    statusMessage = entries.empty() ? "Empty folder" : "";
     Serial.println("Current path: "+currentPath + " entries: "+String(entries.size()));
     return true;
 }
@@ -112,17 +130,16 @@ void GUI::draw()
     switch (screen) {
         case 0:
             drawList();
+            drawButtons();
             break;
         case 1:     
             drawPlayer();
     }
-    drawButtons();
-    
 }
 
 void GUI::drawHeader()
 {
-    tft.fillRect(0,0,320,20,TFT_BLUE);
+    tft.fillRect(0,0,tft.width(),kHeaderHeight,TFT_BLUE);
 
     tft.setTextFont(1);
     tft.setTextColor(TFT_WHITE,TFT_BLUE);
@@ -139,9 +156,23 @@ void GUI::drawHeader()
 
 void GUI::drawList()
 {
-    int y=24;
+    int width = tft.width();
+    int y = kHeaderHeight;
+    int buttonAreaHeight = tft.height() / 2;
+    int listBottom = tft.height() - buttonAreaHeight;
 
     int rows=visibleRows();
+
+    if(entries.empty())
+    {
+        tft.setTextFont(2);
+        tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+        tft.drawCentreString(statusMessage.isEmpty() ? "No entries" : statusMessage,
+                             width / 2,
+                             (listBottom + kHeaderHeight) / 2,
+                             2);
+        return;
+    }
 
     for(int i=0;i<rows;i++)
     {
@@ -150,11 +181,15 @@ void GUI::drawList()
         if(idx>=entries.size())
             break;
 
-        if(idx==selected)
-            tft.fillRect(0,y,320,24,TFT_DARKGREEN);
+        if (y >= listBottom)
+            break;
+
+        uint16_t rowColor = (idx == selected) ? TFT_DARKGREEN : TFT_BLACK;
+        tft.fillRect(0,y,width,kListRowHeight,rowColor);
+        tft.drawFastHLine(0, y + kListRowHeight - 1, width, TFT_DARKGREY);
 
         tft.setTextFont(1);
-        tft.setTextColor(TFT_WHITE);
+        tft.setTextColor(TFT_WHITE, rowColor);
 
         String s;
 
@@ -168,83 +203,141 @@ void GUI::drawList()
 
         tft.drawString(s,5,y+4);
         Serial.println("Drawing entry: "+s);
-        y+=24;
+        y+=kListRowHeight;
     }
 }
 
 void GUI::drawPlayer()
 {
-    tft.fillRect(0,24,320,192,TFT_BLACK);
+    tft.fillRect(0,kHeaderHeight,tft.width(),tft.height()-kHeaderHeight,TFT_BLACK);
 
     tft.setTextFont(2);
     tft.setTextColor(TFT_WHITE);
-    tft.drawCentreString("Tocando: "+chosenFile,160,100,2);
+    tft.drawCentreString("Tocando:", tft.width() / 2, 90, 2);
+    tft.drawCentreString(chosenFile, tft.width() / 2, 125, 2);
 }
 
 void GUI::drawButtons()
 {
-    int y=216;
+    int width = tft.width();
+    int buttonAreaHeight = tft.height() / 2;
+    int buttonTop = tft.height() - buttonAreaHeight;
+    int cellWidth = width / kButtonCols;
+    int cellHeight = buttonAreaHeight / kButtonRows;
 
-    tft.fillRect(0,y,320,24,TFT_DARKGREY);
+    struct ButtonLabel
+    {
+        const char *text;
+        uint16_t color;
+    };
 
-    tft.setTextFont(2);
-    tft.drawCentreString("/\\",40,y+4,2);
-    tft.drawCentreString("ABR.",120,y+4,2);
-    tft.drawCentreString("<=",200,y+4,2);
-    tft.drawCentreString("ACT.",280,y+4,2);
+    const ButtonLabel labels[6] = {
+        {"UP", TFT_DARKGREEN},
+        {"BACK", TFT_DARKCYAN},
+        {"", TFT_DARKGREY},
+        {"", TFT_DARKGREY},
+        {"DOWN", TFT_DARKGREEN},
+        {"OPEN", TFT_ORANGE}
+    };
+
+    for(int row=0; row<kButtonRows; ++row)
+    {
+        for(int col=0; col<kButtonCols; ++col)
+        {
+            int index = row * kButtonCols + col;
+            int x = col * cellWidth;
+            int y = buttonTop + row * cellHeight;
+
+            tft.fillRect(x, y, cellWidth, cellHeight, labels[index].color);
+            tft.drawRect(x, y, cellWidth, cellHeight, TFT_BLACK);
+            if (labels[index].text[0] != '\0')
+            {
+                tft.setTextColor(TFT_WHITE, labels[index].color);
+                tft.setTextFont(2);
+                tft.drawCentreString(labels[index].text, x + cellWidth / 2, y + (cellHeight / 2) - 8, 2);
+            }
+        }
+    }
 }
 
-void GUI::touch(uint16_t x,uint16_t y)
+int GUI::buttonIndexFromPoint(const CYD28_TS_Point &point) const
 {
-    if (screen == 1) {
-        // If in player screen, any touch returns to file list
-        screen = 0;
+    int buttonAreaHeight = tft.height() / 2;
+    int buttonTop = tft.height() - buttonAreaHeight;
+
+    if (point.y < buttonTop)
+        return 0;
+
+    int cellWidth = tft.width() / kButtonCols;
+    int cellHeight = buttonAreaHeight / kButtonRows;
+    int col = point.x / cellWidth;
+    int row = (point.y - buttonTop) / cellHeight;
+
+    if (col < 0 || col >= kButtonCols || row < 0 || row >= kButtonRows)
+        return 0;
+
+    return row * kButtonCols + col + 1;
+}
+
+bool GUI::isInButtonArea(const CYD28_TS_Point &point) const
+{
+    int buttonAreaHeight = tft.height() / 2;
+    int buttonTop = tft.height() - buttonAreaHeight;
+    return point.y >= buttonTop;
+}
+
+void GUI::handleButton(int buttonIndex)
+{
+    switch(buttonIndex)
+    {
+        case 1:
+            scroll(-1);
+            draw();
+            break;
+        case 2:
+            goBack();
+            draw();
+            break;
+        case 6:
+            enterSelection();
+            draw();
+            break;
+        case 5:
+            scroll(1);
+            draw();
+            break;
+        default:
+            break;
+    }
+}
+
+void GUI::touch(const CYD28_TS_Point &point)
+{
+    uint32_t now = millis();
+    if (now - lastTapMs < 150)
+        return;
+
+    lastTapMs = now;
+
+    if (!isInButtonArea(point))
+    {
+        screen = (screen == 0) ? 1 : 0;
         draw();
         return;
     }
 
-    if(y<20)
+    int buttonIndex = buttonIndexFromPoint(point);
+    if (buttonIndex == 0)
         return;
 
-    if(y<216)
-    {
-        int row=(y-24)/24;
-
-        int idx=firstVisible+row;
-
-        if(idx<entries.size())
-        {
-            selected=idx;
-            draw();
-
-            enterSelection();
-        }
-
-        return;
-    }
-
-    if(x<80)
-    {
-        scroll(-1);
-    }
-    else if(x<160)
-    {
-        enterSelection();
-    }
-    else if(x<240)
-    {
-        goBack();
-    }
-    else
-    {
-        refresh();
-    }
-
-    draw();
+    handleButton(buttonIndex);
 }
 
 void GUI::scroll(int delta)
 {
+    if (entries.empty())
+        return;
+
     selected+=delta;
 
     if(selected<0)
@@ -258,11 +351,30 @@ void GUI::scroll(int delta)
 
 void GUI::clampScrolling()
 {
+    if (entries.empty())
+    {
+        selected = 0;
+        firstVisible = 0;
+        return;
+    }
+
+    int rows = visibleRows();
+
     if(selected<firstVisible)
         firstVisible=selected;
 
-    if(selected>=firstVisible+visibleRows())
-        firstVisible=selected-visibleRows()+1;
+    if(selected>=firstVisible+rows)
+        firstVisible=selected-rows+1;
+
+    if (firstVisible < 0)
+        firstVisible = 0;
+
+    int maxFirstVisible = entries.size() - rows;
+    if (maxFirstVisible < 0)
+        maxFirstVisible = 0;
+
+    if (firstVisible > maxFirstVisible)
+        firstVisible = maxFirstVisible;
 }
 
 bool GUI::enterSelection()

@@ -5,6 +5,8 @@
 #include <SD.h>
 #include <vector>
 
+class CYD28_TS_Point;
+
 struct FileEntry
 {
     String name;
@@ -24,7 +26,7 @@ public:
 
     void refresh();
 
-    void touch(uint16_t x, uint16_t y);
+    void touch(const CYD28_TS_Point &point);
 
     void scroll(int delta);
 
@@ -57,8 +59,6 @@ private:
 
     void drawPlayer();
 
-    void drawFooter();
-
     void drawButtons();
 
     bool enterSelection();
@@ -68,5 +68,14 @@ private:
     int visibleRows() const;
 
     void clampScrolling();
+
+    int buttonIndexFromPoint(const CYD28_TS_Point &point) const;
+
+    bool isInButtonArea(const CYD28_TS_Point &point) const;
+
+    void handleButton(int buttonIndex);
+
+    uint32_t lastTapMs;
+
     int screen;
 };
