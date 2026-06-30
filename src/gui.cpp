@@ -9,6 +9,38 @@ constexpr int kHeaderHeight = 24;
 constexpr int kListRowHeight = 24;
 constexpr int kButtonRows = 3;
 constexpr int kButtonCols = 2;
+
+String fileNameFromPath(const String &path)
+{
+    int slash = path.lastIndexOf('/');
+    if (slash >= 0 && slash + 1 < path.length())
+        return path.substring(slash + 1);
+    return path;
+}
+
+String folderFromPath(const String &path)
+{
+    int slash = path.lastIndexOf('/');
+    if (slash <= 0)
+        return "/";
+    return path.substring(0, slash);
+}
+
+String formatTime(uint32_t sec)
+{
+    uint32_t minutes = sec / 60;
+    uint32_t seconds = sec % 60;
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%lu:%02lu", static_cast<unsigned long>(minutes), static_cast<unsigned long>(seconds));
+    return String(buf);
+}
+
+String formatRemainingTimeFrom(uint32_t totalSec, uint32_t currentSec)
+{
+    if (totalSec <= currentSec)
+        return String("0:00");
+    return formatTime(totalSec - currentSec);
+}
 }
 
 GUI::GUI(TFT_eSPI &display)
@@ -20,6 +52,13 @@ GUI::GUI(TFT_eSPI &display)
     firstVisible=0;
     fileChosen=false;
     statusMessage="Initializing...";
+    nowPlayingPath="";
+    metadataArtist="";
+    metadataTrack="";
+    playerPrimaryText="";
+    playerCurrentSec=0;
+    playerTotalSec=0;
+    playerHasMetadata=false;
     lastTapMs=0;
 }
 
@@ -37,10 +76,82 @@ void GUI::refresh()
     loadDirectory(currentPath);
     Serial.println("refresh");
 }
+
+void GUI::setNowPlaying(const String &filePath)
+{
+    nowPlayingPath = filePath;
+    metadataArtist = "";
+    metadataTrack = "";
+    playerCurrentSec = 0;
+    playerTotalSec = 0;
+    playerHasMetadata = false;
+    updatePlayerPrimaryText();
+}
+
+void GUI::setMetadata(const String &artist, const String &track)
+{
+    if (!artist.isEmpty())
+        metadataArtist = artist;
+    if (!track.isEmpty())
+        metadataTrack = track;
+
+    playerHasMetadata = !metadataArtist.isEmpty() || !metadataTrack.isEmpty();
+    updatePlayerPrimaryText();
+}
+
+void GUI::setPlaybackTime(uint32_t currentSec, uint32_t totalSec)
+{
+    playerCurrentSec = currentSec;
+    playerTotalSec = totalSec;
+}
+
 void GUI::drawScreen(int screen)
 {
     this->screen=screen;
     draw();
+}
+
+int GUI::currentScreen() const
+{
+    return screen;
+}
+
+void GUI::updatePlayerPrimaryText()
+{
+    if (!metadataArtist.isEmpty() && !metadataTrack.isEmpty())
+    {
+        playerPrimaryText = metadataArtist + " / " + metadataTrack;
+        return;
+    }
+
+    if (!metadataTrack.isEmpty())
+    {
+        playerPrimaryText = metadataTrack;
+        return;
+    }
+
+    if (!metadataArtist.isEmpty())
+    {
+        playerPrimaryText = metadataArtist;
+        return;
+    }
+
+    if (!nowPlayingPath.isEmpty())
+    {
+        String fileName = fileNameFromPath(nowPlayingPath);
+        String parentFolder = folderFromPath(nowPlayingPath);
+        if (!parentFolder.isEmpty() && parentFolder != "/")
+        {
+            playerPrimaryText = parentFolder + " / " + fileName;
+        }
+        else
+        {
+            playerPrimaryText = fileName;
+        }
+        return;
+    }
+
+    playerPrimaryText = "No track selected";
 }
 
 int GUI::visibleRows() const
@@ -143,9 +254,10 @@ void GUI::drawHeader()
 
     tft.setTextFont(1);
     tft.setTextColor(TFT_WHITE,TFT_BLUE);
-    tft.drawString(currentPath,4,4);
+    String headerText = (screen == 1) ? String("PLAYER") : currentPath;
+    tft.drawString(headerText,4,4);
 
-    if(!statusMessage.isEmpty())
+    if(screen == 0 && !statusMessage.isEmpty())
     {
         tft.setTextFont(1);
         tft.setTextDatum(TL_DATUM);
@@ -209,12 +321,32 @@ void GUI::drawList()
 
 void GUI::drawPlayer()
 {
-    tft.fillRect(0,kHeaderHeight,tft.width(),tft.height()-kHeaderHeight,TFT_BLACK);
+    int width = tft.width();
+    int playerBottom = tft.height() / 2;
+    tft.fillRect(0, kHeaderHeight, width, playerBottom - kHeaderHeight, TFT_BLACK);
+    tft.drawFastHLine(0, playerBottom - 1, width, TFT_DARKGREY);
 
     tft.setTextFont(2);
     tft.setTextColor(TFT_WHITE);
-    tft.drawCentreString("Tocando:", tft.width() / 2, 90, 2);
-    tft.drawCentreString(chosenFile, tft.width() / 2, 125, 2);
+    tft.drawCentreString("Now Playing", width / 2, 34, 2);
+
+    tft.setTextFont(2);
+    tft.setTextColor(TFT_CYAN);
+    tft.drawCentreString(playerPrimaryText, width / 2, 64, 2);
+
+    tft.setTextFont(2);
+    tft.setTextColor(TFT_WHITE);
+    String totalLine = "Total: ";
+    totalLine += (playerTotalSec > 0) ? formatTime(playerTotalSec) : String("--:--");
+    String remainingLine = "Remaining: ";
+    remainingLine += (playerTotalSec > 0) ? formatRemainingTime() : String("--:--");
+    tft.drawCentreString(totalLine, width / 2, 92, 2);
+    tft.drawCentreString(remainingLine, width / 2, 116, 2);
+}
+
+String GUI::formatRemainingTime() const
+{
+    return formatRemainingTimeFrom(playerTotalSec, playerCurrentSec);
 }
 
 void GUI::drawButtons()

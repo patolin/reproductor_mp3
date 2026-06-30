@@ -39,6 +39,62 @@ GUI gui(tft);
 RGBLED led;
 
 uint32_t tNow, tLast;
+portMUX_TYPE gMetadataMux = portMUX_INITIALIZER_UNLOCKED;
+char gMetadataArtist[128] = {0};
+char gMetadataTrack[128] = {0};
+volatile bool gMetadataDirty = false;
+
+void storeMetadataField(char *dest, size_t destSize, const String &value)
+{
+    size_t len = value.length();
+    if (len >= destSize)
+        len = destSize - 1;
+
+    memcpy(dest, value.c_str(), len);
+    dest[len] = '\0';
+}
+
+void setMetadataSnapshot(const String &artist, const String &track)
+{
+    portENTER_CRITICAL(&gMetadataMux);
+    storeMetadataField(gMetadataArtist, sizeof(gMetadataArtist), artist);
+    storeMetadataField(gMetadataTrack, sizeof(gMetadataTrack), track);
+    gMetadataDirty = true;
+    portEXIT_CRITICAL(&gMetadataMux);
+}
+
+void applyMetadataLine(const char *line)
+{
+    if (!line)
+        return;
+
+    String text(line);
+    text.trim();
+
+    if (text.startsWith("Artist:"))
+    {
+        char currentTrack[sizeof(gMetadataTrack)];
+        portENTER_CRITICAL(&gMetadataMux);
+        strncpy(currentTrack, gMetadataTrack, sizeof(currentTrack));
+        currentTrack[sizeof(currentTrack) - 1] = '\0';
+        portEXIT_CRITICAL(&gMetadataMux);
+
+        setMetadataSnapshot(text.substring(7), String(currentTrack));
+        return;
+    }
+
+    if (text.startsWith("Title:"))
+    {
+        char currentArtist[sizeof(gMetadataArtist)];
+        portENTER_CRITICAL(&gMetadataMux);
+        strncpy(currentArtist, gMetadataArtist, sizeof(currentArtist));
+        currentArtist[sizeof(currentArtist) - 1] = '\0';
+        portEXIT_CRITICAL(&gMetadataMux);
+
+        setMetadataSnapshot(String(currentArtist), text.substring(6));
+        return;
+    }
+}
 
 bool touchPressed(CYD28_TS_Point &point)
 {
@@ -48,6 +104,30 @@ bool touchPressed(CYD28_TS_Point &point)
     point = touch.getPointScaled();
 
     return true;
+}
+
+void audio_id3data(const char *info)
+{
+    applyMetadataLine(info);
+}
+
+void audio_showstreamtitle(const char *info)
+{
+    if (!info)
+        return;
+
+    String text(info);
+    text.trim();
+
+    int separator = text.indexOf(" - ");
+    if (separator > 0)
+    {
+        setMetadataSnapshot(text.substring(0, separator), text.substring(separator + 3));
+    }
+    else
+    {
+        setMetadataSnapshot(String(), text);
+    }
 }
 
 void setup()
@@ -71,8 +151,6 @@ void setup()
 	//display.begin(CYD28_DISPLAY_ROT_PORT0);
 	
 	audioInit();
-
-	
 }
 
 void loop()
@@ -93,14 +171,47 @@ void loop()
     }
     touchWasPressed = touched;
 
+    if (gMetadataDirty)
+    {
+        char artist[sizeof(gMetadataArtist)];
+        char track[sizeof(gMetadataTrack)];
+        portENTER_CRITICAL(&gMetadataMux);
+        strncpy(artist, gMetadataArtist, sizeof(artist));
+        artist[sizeof(artist) - 1] = '\0';
+        strncpy(track, gMetadataTrack, sizeof(track));
+        track[sizeof(track) - 1] = '\0';
+        gMetadataDirty = false;
+        portEXIT_CRITICAL(&gMetadataMux);
+
+        gui.setMetadata(String(artist), String(track));
+        if (gui.currentScreen() == 1)
+        {
+            gui.drawScreen(1);
+        }
+    }
+
     if (gui.hasSelectedFile())
     {
-        Serial.println(gui.selectedFile());
+        String selected = gui.selectedFile();
+        Serial.println(selected);
+        gui.setNowPlaying(selected);
         gui.drawScreen(1);
 
         char buf[256];
-        gui.selectedFile().toCharArray(buf, 256);
+        selected.toCharArray(buf, 256);
         audioConnecttoSD(buf);
+    }
+
+    static uint32_t lastPlayerUiMs = 0;
+    if (gui.currentScreen() == 1)
+    {
+        uint32_t now = millis();
+        if (now - lastPlayerUiMs >= 250)
+        {
+            gui.setPlaybackTime(audio.getAudioCurrentTime(), audio.getAudioFileDuration());
+            gui.drawScreen(1);
+            lastPlayerUiMs = now;
+        }
     }
 
 

@@ -30,6 +30,14 @@ public:
 
     void scroll(int delta);
 
+    void setNowPlaying(const String &filePath);
+
+    void setMetadata(const String &artist, const String &track);
+
+    void setPlaybackTime(uint32_t currentSec, uint32_t totalSec);
+
+    int currentScreen() const;
+
     bool hasSelectedFile();
 
     String selectedFile();
@@ -50,6 +58,13 @@ private:
     bool fileChosen;
     String chosenFile;
     String statusMessage;
+    String nowPlayingPath;
+    String metadataArtist;
+    String metadataTrack;
+    String playerPrimaryText;
+    uint32_t playerCurrentSec;
+    uint32_t playerTotalSec;
+    bool playerHasMetadata;
 
     bool loadDirectory(String path);
 
@@ -68,6 +83,10 @@ private:
     int visibleRows() const;
 
     void clampScrolling();
+
+    void updatePlayerPrimaryText();
+
+    String formatRemainingTime() const;
 
     int buttonIndexFromPoint(const CYD28_TS_Point &point) const;
 
