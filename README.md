@@ -37,6 +37,60 @@ El boton BOOT del reverso de la pantalla se usa para:
 - Despertar la interfaz cuando esta en reposo.
 - Apagar la interfaz manualmente cuando esta activa.
 
+## Conexion sugerida
+
+El firmware esta basado en el cableado tipico de la CYD 2.8" y los modulos ya incluidos en el proyecto.
+
+### Tarjeta SD
+La libreria `CYD28_SD` usa estos pines:
+
+- `SCK = GPIO18`
+- `MISO = GPIO19`
+- `MOSI = GPIO23`
+- `CS = GPIO5`
+
+### Touch
+La pantalla tactil usa `CYD28_Touchscreen` con estos pines:
+
+- `IRQ = GPIO36`
+- `MOSI = GPIO32`
+- `MISO = GPIO39`
+- `CLK = GPIO25`
+- `CS = GPIO33`
+
+### Backlight
+- Control de retroiluminacion: `GPIO21`
+
+### Audio I2S
+En el entorno `mp3player_i2c_audio_mod`:
+
+- `BCK = GPIO4`
+- `LRCLK = GPIO22`
+- `DIN = GPIO27`
+
+### Boton BOOT
+- `GPIO0`
+
+## Instalacion rapida
+
+1. Abrir el proyecto en PlatformIO.
+2. Verificar que la configuracion por defecto sea `mp3player_i2c_audio_mod`.
+3. Copiar archivos MP3 a la tarjeta SD.
+4. Cargar el firmware en la placa.
+5. Encender el equipo y navegar con la pantalla tactil.
+
+## Arbol de arranque
+
+```text
+Encendido
+  -> inicializa SD y UI
+  -> monta audio
+  -> carga estado guardado de la SD
+  -> restaura volumen
+  -> intenta reproducir la ultima pista
+  -> si no existe, muestra el navegador
+```
+
 ## Funciones principales
 
 - Explorador de archivos en SD.
