@@ -1,4 +1,5 @@
 #include "gui.h"
+#include "CYD28_audio.h"
 #include "CYD28_SD.h"
 #include "CYD28_TouchscreenR.h"
 #include <algorithm>
@@ -9,6 +10,7 @@ constexpr int kHeaderHeight = 24;
 constexpr int kListRowHeight = 24;
 constexpr int kButtonRows = 3;
 constexpr int kButtonCols = 2;
+constexpr uint8_t kVolumeStepPercent = 20;
 
 String fileNameFromPath(const String &path)
 {
@@ -26,6 +28,14 @@ String folderFromPath(const String &path)
     return path.substring(0, slash);
 }
 
+String joinPath(const String &folder, const String &name)
+{
+    if (folder == "/" || folder.isEmpty())
+        return String("/") + name;
+
+    return folder + "/" + name;
+}
+
 String formatTime(uint32_t sec)
 {
     uint32_t minutes = sec / 60;
@@ -41,6 +51,22 @@ String formatRemainingTimeFrom(uint32_t totalSec, uint32_t currentSec)
         return String("0:00");
     return formatTime(totalSec - currentSec);
 }
+
+bool isPlayableEntry(const FileEntry &entry)
+{
+    return !entry.directory;
+}
+
+String ellipsizeText(const String &text, size_t maxChars)
+{
+    if (text.length() <= maxChars)
+        return text;
+
+    if (maxChars <= 3)
+        return text.substring(0, maxChars);
+
+    return text.substring(0, maxChars - 3) + "...";
+}
 }
 
 GUI::GUI(TFT_eSPI &display)
@@ -55,10 +81,11 @@ GUI::GUI(TFT_eSPI &display)
     nowPlayingPath="";
     metadataArtist="";
     metadataTrack="";
-    playerPrimaryText="";
+    playerArtistText="";
+    playerTitleText="";
     playerCurrentSec=0;
     playerTotalSec=0;
-    playerHasMetadata=false;
+    volumePercent=0;
     lastTapMs=0;
 }
 
@@ -84,8 +111,8 @@ void GUI::setNowPlaying(const String &filePath)
     metadataTrack = "";
     playerCurrentSec = 0;
     playerTotalSec = 0;
-    playerHasMetadata = false;
-    updatePlayerPrimaryText();
+    volumePercent = audioGetVolumePerCent();
+    updatePlayerDisplayText();
 }
 
 void GUI::setMetadata(const String &artist, const String &track)
@@ -95,14 +122,18 @@ void GUI::setMetadata(const String &artist, const String &track)
     if (!track.isEmpty())
         metadataTrack = track;
 
-    playerHasMetadata = !metadataArtist.isEmpty() || !metadataTrack.isEmpty();
-    updatePlayerPrimaryText();
+    updatePlayerDisplayText();
 }
 
 void GUI::setPlaybackTime(uint32_t currentSec, uint32_t totalSec)
 {
     playerCurrentSec = currentSec;
     playerTotalSec = totalSec;
+}
+
+void GUI::setVolumePercent(uint8_t percent)
+{
+    volumePercent = percent > 100 ? 100 : percent;
 }
 
 void GUI::drawScreen(int screen)
@@ -116,42 +147,87 @@ int GUI::currentScreen() const
     return screen;
 }
 
-void GUI::updatePlayerPrimaryText()
+bool GUI::loadDirectoryEntries(String path, std::vector<FileEntry> &outEntries) const
+{
+    outEntries.clear();
+
+    File dir = SD.open(path);
+    if (!dir || !dir.isDirectory())
+        return false;
+
+    while (true)
+    {
+        File file = dir.openNextFile();
+        if (!file)
+            break;
+
+        FileEntry e;
+        String n = file.name();
+
+        if (path != "/")
+        {
+            int p = n.lastIndexOf('/');
+            if (p >= 0)
+                n = n.substring(p + 1);
+        }
+
+        e.name = n;
+        e.directory = file.isDirectory();
+        e.size = file.size();
+        outEntries.push_back(e);
+        file.close();
+    }
+
+    dir.close();
+
+    std::sort(outEntries.begin(), outEntries.end(),
+    [](const FileEntry &a, const FileEntry &b)
+    {
+        if (a.directory != b.directory)
+            return a.directory > b.directory;
+        return a.name < b.name;
+    });
+
+    return true;
+}
+
+void GUI::updatePlayerDisplayText()
 {
     if (!metadataArtist.isEmpty() && !metadataTrack.isEmpty())
     {
-        playerPrimaryText = metadataArtist + " / " + metadataTrack;
+        playerArtistText = metadataArtist;
+        playerTitleText = metadataTrack;
         return;
     }
 
     if (!metadataTrack.isEmpty())
     {
-        playerPrimaryText = metadataTrack;
+        playerArtistText = folderFromPath(nowPlayingPath);
+        playerTitleText = metadataTrack;
         return;
     }
 
     if (!metadataArtist.isEmpty())
     {
-        playerPrimaryText = metadataArtist;
+        playerArtistText = metadataArtist;
+        playerTitleText = fileNameFromPath(nowPlayingPath);
         return;
     }
 
     if (!nowPlayingPath.isEmpty())
     {
-        String fileName = fileNameFromPath(nowPlayingPath);
-        String parentFolder = folderFromPath(nowPlayingPath);
-        if (!parentFolder.isEmpty() && parentFolder != "/")
-        {
-            playerPrimaryText = parentFolder + " / " + fileName;
-        }
-        else
-        {
-            playerPrimaryText = fileName;
-        }
+        playerArtistText = folderFromPath(nowPlayingPath);
+        playerTitleText = fileNameFromPath(nowPlayingPath);
         return;
     }
 
-    playerPrimaryText = "No track selected";
+    playerArtistText = "No track";
+    playerTitleText = "selected";
+}
+
+String GUI::ellipsize(const String &text, size_t maxChars) const
+{
+    return ellipsizeText(text, maxChars);
 }
 
 int GUI::visibleRows() const
@@ -165,6 +241,52 @@ int GUI::visibleRows() const
     return rows > 0 ? rows : 1;
 }
 
+bool GUI::playPreviousTrack()
+{
+    if (entries.empty())
+        return false;
+
+    String currentFile = nowPlayingPath.isEmpty() ? chosenFile : nowPlayingPath;
+    int currentIndex = findEntryIndexByName(fileNameFromPath(currentFile));
+    if (currentIndex < 0)
+        currentIndex = selected;
+
+    for (int i = currentIndex - 1; i >= 0; --i)
+    {
+        if (isPlayableEntry(entries[i]))
+            return queueTrackPath(joinPath(currentPath, entries[i].name));
+    }
+
+    String siblingTrack;
+    if (siblingFolderTrack(currentPath, -1, siblingTrack))
+        return queueTrackPath(siblingTrack);
+
+    return false;
+}
+
+bool GUI::playNextTrack()
+{
+    if (entries.empty())
+        return false;
+
+    String currentFile = nowPlayingPath.isEmpty() ? chosenFile : nowPlayingPath;
+    int currentIndex = findEntryIndexByName(fileNameFromPath(currentFile));
+    if (currentIndex < 0)
+        currentIndex = selected;
+
+    for (size_t i = static_cast<size_t>(currentIndex + 1); i < entries.size(); ++i)
+    {
+        if (isPlayableEntry(entries[i]))
+            return queueTrackPath(joinPath(currentPath, entries[i].name));
+    }
+
+    String siblingTrack;
+    if (siblingFolderTrack(currentPath, 1, siblingTrack))
+        return queueTrackPath(siblingTrack);
+
+    return false;
+}
+
 bool GUI::loadDirectory(String path)
 {
     entries.clear();
@@ -175,9 +297,7 @@ bool GUI::loadDirectory(String path)
         sdcard.begin();
     }
 
-    File dir=SD.open(path);
-
-    if(!dir || !dir.isDirectory())
+    if(!loadDirectoryEntries(path, entries))
     {
         statusMessage="No SD card or invalid folder";
         currentPath=path;
@@ -185,44 +305,6 @@ bool GUI::loadDirectory(String path)
         firstVisible=0;
         return false;
     }
-
-    while(true)
-    {
-        File file=dir.openNextFile();
-
-        if(!file)
-            break;
-
-        FileEntry e;
-
-        String n=file.name();
-
-        if(path!="/")
-        {
-            int p=n.lastIndexOf('/');
-            if(p>=0)
-                n=n.substring(p+1);
-        }
-
-        e.name=n;
-        e.directory=file.isDirectory();
-        e.size=file.size();
-
-        entries.push_back(e);
-
-        file.close();
-    }
-
-    dir.close();
-
-    std::sort(entries.begin(),entries.end(),
-    [](const FileEntry&a,const FileEntry&b)
-    {
-        if(a.directory!=b.directory)
-            return a.directory>b.directory;
-
-        return a.name<b.name;
-    });
 
     currentPath=path;
     selected=0;
@@ -330,23 +412,218 @@ void GUI::drawPlayer()
     tft.setTextColor(TFT_WHITE);
     tft.drawCentreString("Now Playing", width / 2, 34, 2);
 
-    tft.setTextFont(2);
+    tft.setTextFont(1);
     tft.setTextColor(TFT_CYAN);
-    tft.drawCentreString(playerPrimaryText, width / 2, 64, 2);
+    tft.drawCentreString(ellipsize(playerArtistText, 36), width / 2, 52, 1);
+    tft.drawCentreString(ellipsize(playerTitleText, 36), width / 2, 66, 1);
 
-    tft.setTextFont(2);
+    tft.setTextFont(1);
     tft.setTextColor(TFT_WHITE);
     String totalLine = "Total: ";
     totalLine += (playerTotalSec > 0) ? formatTime(playerTotalSec) : String("--:--");
     String remainingLine = "Remaining: ";
     remainingLine += (playerTotalSec > 0) ? formatRemainingTime() : String("--:--");
-    tft.drawCentreString(totalLine, width / 2, 92, 2);
-    tft.drawCentreString(remainingLine, width / 2, 116, 2);
+    tft.drawCentreString(totalLine, width / 2, 82, 1);
+    tft.drawCentreString(remainingLine, width / 2, 94, 1);
+
+    drawProgressBar();
+    drawPlayerControls();
+}
+
+void GUI::drawProgressBar()
+{
+    int width = tft.width();
+    int barX = 16;
+    int barY = 101;
+    int barW = width - 32;
+    int barH = 8;
+    uint32_t progressPercent = 0;
+
+    if (playerTotalSec > 0 && playerCurrentSec <= playerTotalSec)
+        progressPercent = (playerCurrentSec * 100UL) / playerTotalSec;
+
+    tft.setTextFont(1);
+    tft.setTextColor(TFT_WHITE);
+    tft.drawCentreString("Progress", width / 2, 94, 1);
+    tft.drawRect(barX, barY, barW, barH, TFT_WHITE);
+    int fillW = (barW - 2) * progressPercent / 100;
+    if (fillW > 0)
+        tft.fillRect(barX + 1, barY + 1, fillW, barH - 2, TFT_GREEN);
+
+    String volumeLine = "Volume ";
+    volumeLine += String(volumePercent);
+    volumeLine += "%";
+    tft.drawCentreString(volumeLine, width / 2, 110, 1);
+
+    int volumeBarY = 115;
+    int volumeBarH = 4;
+    tft.drawRect(barX, volumeBarY, barW, volumeBarH, TFT_WHITE);
+    int volumeFillW = (barW - 2) * volumePercent / 100;
+    if (volumeFillW > 0)
+        tft.fillRect(barX + 1, volumeBarY + 1, volumeFillW, volumeBarH - 2, TFT_ORANGE);
+}
+
+void GUI::drawPlayerControls()
+{
+    int width = tft.width();
+    int buttonTop = tft.height() / 2;
+    int buttonAreaHeight = tft.height() - buttonTop;
+    int cellWidth = width / kButtonCols;
+    int cellHeight = buttonAreaHeight / kButtonRows;
+
+    struct ButtonLabel
+    {
+        const char *text;
+        uint16_t color;
+    };
+
+    const ButtonLabel labels[6] = {
+        {"", TFT_DARKGREY},
+        {"VOL+", TFT_DARKGREEN},
+        {"PREV", TFT_DARKCYAN},
+        {"NEXT", TFT_ORANGE},
+        {"", TFT_DARKGREY},
+        {"VOL-", TFT_DARKGREEN}
+    };
+
+    for(int row=0; row<kButtonRows; ++row)
+    {
+        for(int col=0; col<kButtonCols; ++col)
+        {
+            int index = row * kButtonCols + col;
+            int x = col * cellWidth;
+            int y = buttonTop + row * cellHeight;
+
+            tft.fillRect(x, y, cellWidth, cellHeight, labels[index].color);
+            tft.drawRect(x, y, cellWidth, cellHeight, TFT_BLACK);
+            if (labels[index].text[0] != '\0')
+            {
+                tft.setTextColor(TFT_WHITE, labels[index].color);
+                tft.setTextFont(2);
+                tft.drawCentreString(labels[index].text, x + cellWidth / 2, y + (cellHeight / 2) - 8, 2);
+            }
+        }
+    }
 }
 
 String GUI::formatRemainingTime() const
 {
     return formatRemainingTimeFrom(playerTotalSec, playerCurrentSec);
+}
+
+int GUI::findEntryIndexByName(const String &name) const
+{
+    for (size_t i = 0; i < entries.size(); ++i)
+    {
+        if (!entries[i].directory && entries[i].name == name)
+            return static_cast<int>(i);
+    }
+    return -1;
+}
+
+bool GUI::queueTrackPath(const String &path)
+{
+    String folder = folderFromPath(path);
+    String fileName = fileNameFromPath(path);
+
+    if (currentPath != folder)
+    {
+        if (!loadDirectory(folder))
+            return false;
+    }
+
+    int idx = findEntryIndexByName(fileName);
+    if (idx < 0)
+        return false;
+
+    selected = idx;
+    clampScrolling();
+    chosenFile = path;
+    nowPlayingPath = path;
+    metadataArtist = "";
+    metadataTrack = "";
+    playerCurrentSec = 0;
+    playerTotalSec = 0;
+    fileChosen = true;
+    updatePlayerDisplayText();
+    if (screen == 1)
+        drawPlayer();
+    return true;
+}
+
+bool GUI::firstPlayableTrackInFolder(const String &folder, String &outPath) const
+{
+    std::vector<FileEntry> tempEntries;
+    if (!loadDirectoryEntries(folder, tempEntries))
+        return false;
+
+    for (const auto &entry : tempEntries)
+    {
+        if (isPlayableEntry(entry))
+        {
+            outPath = joinPath(folder, entry.name);
+            return true;
+        }
+    }
+
+    for (const auto &entry : tempEntries)
+    {
+        if (!entry.directory)
+            continue;
+
+        String nestedPath;
+        if (firstPlayableTrackInFolder(joinPath(folder, entry.name), nestedPath))
+        {
+            outPath = nestedPath;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool GUI::siblingFolderTrack(const String &currentFolder, int direction, String &outPath) const
+{
+    String folder = currentFolder;
+
+    while (!folder.isEmpty() && folder != "/")
+    {
+        String parent = folderFromPath(folder);
+        String currentName = fileNameFromPath(folder);
+
+        std::vector<FileEntry> parentEntries;
+        if (!loadDirectoryEntries(parent, parentEntries))
+            return false;
+
+        std::vector<String> folders;
+        folders.reserve(parentEntries.size());
+        for (const auto &entry : parentEntries)
+        {
+            if (entry.directory)
+                folders.push_back(entry.name);
+        }
+
+        int currentIndex = -1;
+        for (size_t i = 0; i < folders.size(); ++i)
+        {
+            if (folders[i] == currentName)
+            {
+                currentIndex = static_cast<int>(i);
+                break;
+            }
+        }
+
+        int siblingIndex = currentIndex + direction;
+        if (currentIndex >= 0 && siblingIndex >= 0 && siblingIndex < static_cast<int>(folders.size()))
+        {
+            String siblingFolder = joinPath(parent, folders[siblingIndex]);
+            return firstPlayableTrackInFolder(siblingFolder, outPath);
+        }
+
+        folder = parent;
+    }
+
+    return false;
 }
 
 void GUI::drawButtons()
@@ -420,6 +697,46 @@ bool GUI::isInButtonArea(const CYD28_TS_Point &point) const
 
 void GUI::handleButton(int buttonIndex)
 {
+    if (screen == 1)
+    {
+        switch(buttonIndex)
+        {
+            case 2:
+            {
+                uint8_t vol = volumePercent;
+                if (vol < 100)
+                    vol = (vol + kVolumeStepPercent > 100) ? 100 : (vol + kVolumeStepPercent);
+                uint8_t maxVol = audio.maxVolume();
+                uint8_t rawVol = maxVol ? (vol * maxVol + 50) / 100 : vol;
+                audioSetVolume(rawVol);
+                setVolumePercent(vol);
+                drawPlayer();
+                break;
+            }
+            case 3:
+                playPreviousTrack();
+                break;
+            case 4:
+                playNextTrack();
+                break;
+            case 6:
+            {
+                uint8_t vol = volumePercent;
+                if (vol > 0)
+                    vol = (vol < kVolumeStepPercent) ? 0 : (vol - kVolumeStepPercent);
+                uint8_t maxVol = audio.maxVolume();
+                uint8_t rawVol = maxVol ? (vol * maxVol + 50) / 100 : vol;
+                audioSetVolume(rawVol);
+                setVolumePercent(vol);
+                drawPlayer();
+                break;
+            }
+            default:
+                break;
+        }
+        return;
+    }
+
     switch(buttonIndex)
     {
         case 1:
@@ -430,12 +747,12 @@ void GUI::handleButton(int buttonIndex)
             goBack();
             draw();
             break;
-        case 6:
-            enterSelection();
-            draw();
-            break;
         case 5:
             scroll(1);
+            draw();
+            break;
+        case 6:
+            enterSelection();
             draw();
             break;
         default:

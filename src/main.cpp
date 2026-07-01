@@ -24,6 +24,7 @@
  */
 #include <Arduino.h>
 #include "SPI.h"
+#include <cstring>
 #include "CYD28_RGBled.h"
 #include "CYD28_SD.h"
 #include "CYD28_audio.h"

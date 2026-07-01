@@ -38,6 +38,8 @@ public:
 
     int currentScreen() const;
 
+    void setVolumePercent(uint8_t percent);
+
     bool hasSelectedFile();
 
     String selectedFile();
@@ -61,12 +63,23 @@ private:
     String nowPlayingPath;
     String metadataArtist;
     String metadataTrack;
-    String playerPrimaryText;
+    String playerArtistText;
+    String playerTitleText;
     uint32_t playerCurrentSec;
     uint32_t playerTotalSec;
-    bool playerHasMetadata;
+    uint8_t volumePercent;
 
     bool loadDirectory(String path);
+
+    bool loadDirectoryEntries(String path, std::vector<FileEntry> &outEntries) const;
+
+    int findEntryIndexByName(const String &name) const;
+
+    bool queueTrackPath(const String &path);
+
+    bool firstPlayableTrackInFolder(const String &folder, String &outPath) const;
+
+    bool siblingFolderTrack(const String &currentFolder, int direction, String &outPath) const;
 
     void drawHeader();
 
@@ -74,17 +87,27 @@ private:
 
     void drawPlayer();
 
+    void drawPlayerControls();
+
+    void drawProgressBar();
+
     void drawButtons();
 
     bool enterSelection();
 
     bool goBack();
 
+    bool playPreviousTrack();
+
+    bool playNextTrack();
+
     int visibleRows() const;
 
     void clampScrolling();
 
-    void updatePlayerPrimaryText();
+    void updatePlayerDisplayText();
+
+    String ellipsize(const String &text, size_t maxChars) const;
 
     String formatRemainingTime() const;
 
