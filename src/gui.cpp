@@ -10,7 +10,7 @@ constexpr int kHeaderHeight = 24;
 constexpr int kListRowHeight = 24;
 constexpr int kButtonRows = 3;
 constexpr int kButtonCols = 2;
-constexpr uint8_t kVolumeStepPercent = 20;
+constexpr uint8_t kVolumeStepPercent = 5;
 
 String fileNameFromPath(const String &path)
 {
@@ -26,6 +26,11 @@ String folderFromPath(const String &path)
     if (slash <= 0)
         return "/";
     return path.substring(0, slash);
+}
+
+String folderNameFromPath(const String &path)
+{
+    return fileNameFromPath(folderFromPath(path));
 }
 
 String joinPath(const String &folder, const String &name)
@@ -83,9 +88,11 @@ GUI::GUI(TFT_eSPI &display)
     metadataTrack="";
     playerArtistText="";
     playerTitleText="";
+    playerDiscText="";
     playerCurrentSec=0;
     playerTotalSec=0;
     volumePercent=0;
+    playerPaused=false;
     lastTapMs=0;
 }
 
@@ -112,6 +119,8 @@ void GUI::setNowPlaying(const String &filePath)
     playerCurrentSec = 0;
     playerTotalSec = 0;
     volumePercent = audioGetVolumePerCent();
+    playerPaused = false;
+    playerDiscText = folderNameFromPath(filePath);
     updatePlayerDisplayText();
 }
 
@@ -193,6 +202,8 @@ bool GUI::loadDirectoryEntries(String path, std::vector<FileEntry> &outEntries) 
 
 void GUI::updatePlayerDisplayText()
 {
+    playerDiscText = folderNameFromPath(nowPlayingPath);
+
     if (!metadataArtist.isEmpty() && !metadataTrack.isEmpty())
     {
         playerArtistText = metadataArtist;
@@ -223,6 +234,7 @@ void GUI::updatePlayerDisplayText()
 
     playerArtistText = "No track";
     playerTitleText = "selected";
+    playerDiscText = "";
 }
 
 String GUI::ellipsize(const String &text, size_t maxChars) const
@@ -339,6 +351,20 @@ void GUI::drawHeader()
     String headerText = (screen == 1) ? String("PLAYER") : currentPath;
     tft.drawString(headerText,4,4);
 
+    if (screen == 1)
+    {
+        int width = tft.width();
+        int barX = 88;
+        int barY = 8;
+        int barW = width - barX - 6;
+        int barH = 8;
+
+        tft.drawRect(barX, barY, barW, barH, TFT_WHITE);
+        int fillW = (barW - 2) * volumePercent / 100;
+        if (fillW > 0)
+            tft.fillRect(barX + 1, barY + 1, fillW, barH - 2, TFT_ORANGE);
+    }
+
     if(screen == 0 && !statusMessage.isEmpty())
     {
         tft.setTextFont(1);
@@ -416,15 +442,19 @@ void GUI::drawPlayer()
     tft.setTextColor(TFT_CYAN);
     tft.drawCentreString(ellipsize(playerArtistText, 36), width / 2, 52, 1);
     tft.drawCentreString(ellipsize(playerTitleText, 36), width / 2, 66, 1);
+    if (!playerDiscText.isEmpty())
+    {
+        tft.setTextColor(TFT_LIGHTGREY);
+        tft.drawCentreString(ellipsize(String("Disc: ") + playerDiscText, 36), width / 2, 80, 1);
+    }
 
     tft.setTextFont(1);
     tft.setTextColor(TFT_WHITE);
-    String totalLine = "Total: ";
-    totalLine += (playerTotalSec > 0) ? formatTime(playerTotalSec) : String("--:--");
-    String remainingLine = "Remaining: ";
-    remainingLine += (playerTotalSec > 0) ? formatRemainingTime() : String("--:--");
-    tft.drawCentreString(totalLine, width / 2, 82, 1);
-    tft.drawCentreString(remainingLine, width / 2, 94, 1);
+    String timeLine = "Elapsed: ";
+    timeLine += (playerTotalSec > 0) ? formatTime(playerCurrentSec) : String("--:--");
+    timeLine += " - Total: ";
+    timeLine += (playerTotalSec > 0) ? formatTime(playerTotalSec) : String("--:--");
+    tft.drawCentreString(timeLine, width / 2, 96, 1);
 
     drawProgressBar();
     drawPlayerControls();
@@ -434,7 +464,7 @@ void GUI::drawProgressBar()
 {
     int width = tft.width();
     int barX = 16;
-    int barY = 101;
+    int barY = 111;
     int barW = width - 32;
     int barH = 8;
     uint32_t progressPercent = 0;
@@ -444,23 +474,10 @@ void GUI::drawProgressBar()
 
     tft.setTextFont(1);
     tft.setTextColor(TFT_WHITE);
-    tft.drawCentreString("Progress", width / 2, 94, 1);
     tft.drawRect(barX, barY, barW, barH, TFT_WHITE);
     int fillW = (barW - 2) * progressPercent / 100;
     if (fillW > 0)
         tft.fillRect(barX + 1, barY + 1, fillW, barH - 2, TFT_GREEN);
-
-    String volumeLine = "Volume ";
-    volumeLine += String(volumePercent);
-    volumeLine += "%";
-    tft.drawCentreString(volumeLine, width / 2, 110, 1);
-
-    int volumeBarY = 115;
-    int volumeBarH = 4;
-    tft.drawRect(barX, volumeBarY, barW, volumeBarH, TFT_WHITE);
-    int volumeFillW = (barW - 2) * volumePercent / 100;
-    if (volumeFillW > 0)
-        tft.fillRect(barX + 1, volumeBarY + 1, volumeFillW, volumeBarH - 2, TFT_ORANGE);
 }
 
 void GUI::drawPlayerControls()
@@ -478,13 +495,16 @@ void GUI::drawPlayerControls()
     };
 
     const ButtonLabel labels[6] = {
-        {"", TFT_DARKGREY},
+        {nullptr, TFT_DARKCYAN},
         {"VOL+", TFT_DARKGREEN},
         {"PREV", TFT_DARKCYAN},
         {"NEXT", TFT_ORANGE},
-        {"", TFT_DARKGREY},
+        {"STOP", TFT_RED},
         {"VOL-", TFT_DARKGREEN}
     };
+
+    String pauseLabel = playerPaused ? "RESUME" : "PAUSE";
+    uint16_t pauseColor = playerPaused ? TFT_MAROON : TFT_DARKCYAN;
 
     for(int row=0; row<kButtonRows; ++row)
     {
@@ -493,14 +513,21 @@ void GUI::drawPlayerControls()
             int index = row * kButtonCols + col;
             int x = col * cellWidth;
             int y = buttonTop + row * cellHeight;
-
-            tft.fillRect(x, y, cellWidth, cellHeight, labels[index].color);
-            tft.drawRect(x, y, cellWidth, cellHeight, TFT_BLACK);
-            if (labels[index].text[0] != '\0')
+            const char *text = labels[index].text;
+            uint16_t color = labels[index].color;
+            if (index == 0)
             {
-                tft.setTextColor(TFT_WHITE, labels[index].color);
+                text = pauseLabel.c_str();
+                color = pauseColor;
+            }
+
+            tft.fillRect(x, y, cellWidth, cellHeight, color);
+            tft.drawRect(x, y, cellWidth, cellHeight, TFT_BLACK);
+            if (text && text[0] != '\0')
+            {
+                tft.setTextColor(TFT_WHITE, color);
                 tft.setTextFont(2);
-                tft.drawCentreString(labels[index].text, x + cellWidth / 2, y + (cellHeight / 2) - 8, 2);
+                tft.drawCentreString(text, x + cellWidth / 2, y + (cellHeight / 2) - 8, 2);
             }
         }
     }
@@ -544,6 +571,7 @@ bool GUI::queueTrackPath(const String &path)
     metadataTrack = "";
     playerCurrentSec = 0;
     playerTotalSec = 0;
+    playerPaused = false;
     fileChosen = true;
     updatePlayerDisplayText();
     if (screen == 1)
@@ -701,6 +729,11 @@ void GUI::handleButton(int buttonIndex)
     {
         switch(buttonIndex)
         {
+            case 1:
+                audioPauseResume();
+                playerPaused = !playerPaused;
+                drawPlayer();
+                break;
             case 2:
             {
                 uint8_t vol = volumePercent;
@@ -718,6 +751,12 @@ void GUI::handleButton(int buttonIndex)
                 break;
             case 4:
                 playNextTrack();
+                break;
+            case 5:
+                audioStopSong();
+                playerPaused = false;
+                setPlaybackTime(0, 0);
+                drawPlayer();
                 break;
             case 6:
             {

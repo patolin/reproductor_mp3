@@ -105,6 +105,11 @@ void audioTask(void *parameter)
 					audioTxTaskMessage.ret = audio.connecttospeech(audioRxTaskMessage.txt1, audioRxTaskMessage.txt2);
 					xQueueSend(audioGetQueue, &audioTxTaskMessage, portMAX_DELAY);				
 					break;
+				case AUDIO_PAUSE:
+					audioTxTaskMessage.cmd = AUDIO_PAUSE;
+					audioTxTaskMessage.ret = audio.pauseResume();
+					xQueueSend(audioGetQueue, &audioTxTaskMessage, portMAX_DELAY);
+					break;
 				case AUDIO_STOP:
 					audioTxTaskMessage.cmd = AUDIO_STOP;
 					audio.stopSong();
@@ -148,6 +153,12 @@ bool audioIsPlaying(void)
 	audioTxMessage.cmd = IS_PLAYING;
 	audioMessage_t RX = transmitReceive(audioTxMessage);
 	return ((bool)RX.ret);
+}
+// ---------------------------------------------------------------
+void audioPauseResume()
+{
+	audioTxMessage.cmd = AUDIO_PAUSE;
+	audioMessage_t RX = transmitReceive(audioTxMessage);
 }
 // ---------------------------------------------------------------
 void audioStopSong()

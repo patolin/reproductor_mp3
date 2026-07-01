@@ -15,6 +15,7 @@ typedef enum : uint8_t
 	CONNECTTOHOST,
 	CONNECTTOSPEECH,
 	CONNECTTOSD,
+	AUDIO_PAUSE,
 	AUDIO_STOP
 }audioCmd_t;
 
@@ -42,6 +43,7 @@ uint8_t audioGetVolumePerCent();
 bool audioConnecttohost(const char *host);
 bool audioConnecttoSD(const char *filename);
 bool audioConnecttoSpeech(const char *host, const char *lang);
+void audioPauseResume();
 void audioStopSong();
 void setVuMeters(uint32_t vuRL);
 

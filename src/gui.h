@@ -65,9 +65,11 @@ private:
     String metadataTrack;
     String playerArtistText;
     String playerTitleText;
+    String playerDiscText;
     uint32_t playerCurrentSec;
     uint32_t playerTotalSec;
     uint8_t volumePercent;
+    bool playerPaused;
 
     bool loadDirectory(String path);
 
