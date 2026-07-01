@@ -50,6 +50,15 @@ volatile bool gMetadataDirty = false;
 String gRestoredTrackPath;
 uint8_t gRestoredVolumePercent = 21;
 
+constexpr uint32_t kUiIdleTimeoutMs = 30000;
+constexpr int kBacklightPin = 21;
+constexpr int kBootButtonPin = 0;
+
+bool gUiSleeping = false;
+uint32_t gLastUiActivityMs = 0;
+bool gBootButtonWasPressed = false;
+bool gTouchWasPressed = false;
+
 uint8_t percentToRawVolume(uint8_t percent)
 {
     uint8_t maxVol = audio.maxVolume();
@@ -60,6 +69,35 @@ uint8_t percentToRawVolume(uint8_t percent)
         percent = 100;
 
     return static_cast<uint8_t>((percent * maxVol + 50U) / 100U);
+}
+
+void setUiSleeping(bool sleeping)
+{
+    if (gUiSleeping == sleeping)
+        return;
+
+    gUiSleeping = sleeping;
+
+    if (sleeping)
+    {
+#ifndef DUSE_BACKLIGHT_MOD
+        digitalWrite(kBacklightPin, LOW);
+#endif
+        return;
+    }
+
+#ifndef DUSE_BACKLIGHT_MOD
+    digitalWrite(kBacklightPin, HIGH);
+#endif
+    gui.drawScreen(gui.currentScreen());
+}
+
+void markUiActivity()
+{
+    gLastUiActivityMs = millis();
+
+    if (gUiSleeping)
+        setUiSleeping(false);
 }
 
 void storeMetadataField(char *dest, size_t destSize, const String &value)
@@ -153,9 +191,10 @@ void setup()
 	Serial.begin(115200);
     UIText::setLanguage(UIText::Language::Spanish);
 #ifndef DUSE_BACKLIGHT_MOD
-	pinMode(21, OUTPUT);		// turn on the display backlight
-	digitalWrite(21, HIGH);
+	pinMode(kBacklightPin, OUTPUT);		// turn on the display backlight
+	digitalWrite(kBacklightPin, HIGH);
 #endif
+    pinMode(kBootButtonPin, INPUT_PULLUP);
     sdcard.begin();
     appState.loadSession(gRestoredTrackPath, gRestoredVolumePercent);
     tft.init();
@@ -175,6 +214,7 @@ void setup()
     audioSetVolume(percentToRawVolume(gRestoredVolumePercent));
     gRestoredVolumePercent = audioGetVolumePerCent();
     gui.setVolumePercent(gRestoredVolumePercent);
+    gLastUiActivityMs = millis();
 
     if (!gRestoredTrackPath.isEmpty() && SD.exists(gRestoredTrackPath.c_str()))
     {
@@ -198,18 +238,39 @@ void loop()
 	//display.loop();
     console_process();
 	// Serial.print("ok!");
-    
-    
+
+    bool bootButtonPressed = (digitalRead(kBootButtonPin) == LOW);
+    bool bootButtonEdge = bootButtonPressed && !gBootButtonWasPressed;
+
+    if (bootButtonEdge)
+    {
+        if (gUiSleeping)
+        {
+            markUiActivity();
+            gTouchWasPressed = false;
+        }
+        else
+        {
+            setUiSleeping(true);
+        }
+    }
+
+    if (gUiSleeping)
+    {
+        gBootButtonWasPressed = bootButtonPressed;
+        return;
+    }
+
     // Touch controller
-    static bool touchWasPressed = false;
     CYD28_TS_Point point;
 
     bool touched = touchPressed(point);
-    if (touched && !touchWasPressed)
+    if (touched && !gTouchWasPressed)
     {
+        markUiActivity();
         gui.touch(point);
     }
-    touchWasPressed = touched;
+    gTouchWasPressed = touched;
 
     if (gMetadataDirty)
     {
@@ -269,4 +330,11 @@ void loop()
             lastPlayerUiMs = now;
         }
     }
+
+    if (millis() - gLastUiActivityMs >= kUiIdleTimeoutMs)
+    {
+        setUiSleeping(true);
+    }
+
+    gBootButtonWasPressed = bootButtonPressed;
 }
