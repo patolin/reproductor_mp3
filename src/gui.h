@@ -74,6 +74,8 @@ private:
     uint32_t playerTotalSec;
     uint8_t volumePercent;
     bool playerPaused;
+    uint8_t vuLeftDisplay;
+    uint8_t vuRightDisplay;
 
     bool loadDirectory(String path);
 
@@ -96,6 +98,8 @@ private:
     void drawPlayerControls();
 
     void drawProgressBar();
+
+    void drawVuMeters();
 
     void drawButtons();
 
