@@ -40,11 +40,15 @@ public:
 
     void setVolumePercent(uint8_t percent);
 
+    uint8_t currentVolumePercent() const;
+
     bool hasSelectedFile();
 
     String selectedFile();
 
     void drawScreen(int screen); // 0: file list, 1: audio player
+
+    bool restoreTrackPath(const String &path);
 
 private:
 
@@ -83,7 +87,7 @@ private:
 
     int findEntryIndexByName(const String &name) const;
 
-    bool queueTrackPath(const String &path);
+    bool queueTrackPath(const String &path, bool markForPlayback = true);
 
     bool firstPlayableTrackInFolder(const String &folder, String &outPath) const;
 

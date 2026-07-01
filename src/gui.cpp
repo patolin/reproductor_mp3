@@ -2,6 +2,7 @@
 #include "CYD28_audio.h"
 #include "CYD28_SD.h"
 #include "CYD28_TouchscreenR.h"
+#include "ui_text.h"
 #include <algorithm>
 
 namespace
@@ -79,8 +80,9 @@ String formatTime(uint32_t sec)
 
 String formatRemainingTimeFrom(uint32_t totalSec, uint32_t currentSec)
 {
+    const auto &ui = UIText::strings();
     if (totalSec <= currentSec)
-        return String("0:00");
+        return String(ui.timeZero);
     return formatTime(totalSec - currentSec);
 }
 
@@ -97,7 +99,7 @@ String ellipsizeText(const String &text, size_t maxChars)
     if (maxChars <= 3)
         return text.substring(0, maxChars);
 
-    return text.substring(0, maxChars - 3) + "...";
+    return text.substring(0, maxChars - 3) + UIText::strings().ellipsis;
 }
 }
 
@@ -108,12 +110,14 @@ GUI::GUI(TFT_eSPI &display)
   playerSpriteReady(false),
   playerSpriteAttempted(false)
 {
+    const auto &ui = UIText::strings();
+
     currentPath="/";
     selected=0;
     screen=0;
     firstVisible=0;
     fileChosen=false;
-    statusMessage="Initializing...";
+    statusMessage=ui.statusInitializing;
     nowPlayingPath="";
     metadataArtist="";
     metadataTrack="";
@@ -177,6 +181,11 @@ void GUI::setPlaybackTime(uint32_t currentSec, uint32_t totalSec)
 void GUI::setVolumePercent(uint8_t percent)
 {
     volumePercent = percent > 100 ? 100 : percent;
+}
+
+uint8_t GUI::currentVolumePercent() const
+{
+    return volumePercent;
 }
 
 void GUI::drawScreen(int screen)
@@ -247,6 +256,8 @@ bool GUI::loadDirectoryEntries(String path, std::vector<FileEntry> &outEntries) 
 
 void GUI::updatePlayerDisplayText()
 {
+    const auto &ui = UIText::strings();
+
     playerDiscText = folderNameFromPath(nowPlayingPath);
 
     if (!metadataArtist.isEmpty() && !metadataTrack.isEmpty())
@@ -277,8 +288,8 @@ void GUI::updatePlayerDisplayText()
         return;
     }
 
-    playerArtistText = "No track";
-    playerTitleText = "selected";
+    playerArtistText = ui.statusNoTrack;
+    playerTitleText = ui.statusSelected;
     playerDiscText = "";
 }
 
@@ -369,6 +380,8 @@ bool GUI::playNextTrack()
 
 bool GUI::loadDirectory(String path)
 {
+    const auto &ui = UIText::strings();
+
     entries.clear();
     statusMessage="";
 
@@ -379,7 +392,7 @@ bool GUI::loadDirectory(String path)
 
     if(!loadDirectoryEntries(path, entries))
     {
-        statusMessage="No SD card or invalid folder";
+        statusMessage=ui.statusNoSdCardOrInvalidFolder;
         currentPath=path;
         selected=0;
         firstVisible=0;
@@ -389,7 +402,7 @@ bool GUI::loadDirectory(String path)
     currentPath=path;
     selected=0;
     firstVisible=0;
-    statusMessage = entries.empty() ? "Empty folder" : "";
+    statusMessage = entries.empty() ? ui.statusEmptyFolder : "";
     Serial.println("Current path: "+currentPath + " entries: "+String(entries.size()));
     return true;
 }
@@ -411,11 +424,13 @@ void GUI::draw()
 
 void GUI::drawHeader()
 {
+    const auto &ui = UIText::strings();
+
     canvas->fillRect(0,0,canvas->width(),kHeaderHeight,TFT_BLUE);
 
     canvas->setTextFont(1);
     canvas->setTextColor(TFT_WHITE,TFT_BLUE);
-    String headerText = (screen == 1) ? String("PLAYER") : currentPath;
+    String headerText = (screen == 1) ? String(ui.screenTitlePlayer) : currentPath;
     canvas->drawString(headerText,4,4);
 
     if (screen == 1)
@@ -443,6 +458,8 @@ void GUI::drawHeader()
 
 void GUI::drawList()
 {
+    const auto &ui = UIText::strings();
+
     int width = canvas->width();
     int y = kHeaderHeight;
     int buttonAreaHeight = canvas->height() / 2;
@@ -454,7 +471,7 @@ void GUI::drawList()
     {
         canvas->setTextFont(2);
         canvas->setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        canvas->drawCentreString(statusMessage.isEmpty() ? "No entries" : statusMessage,
+        canvas->drawCentreString(statusMessage.isEmpty() ? ui.statusNoEntries : statusMessage,
                              width / 2,
                              (listBottom + kHeaderHeight) / 2,
                              2);
@@ -481,10 +498,10 @@ void GUI::drawList()
         String s;
 
         if(entries[idx].directory)
-            s="[DIR] ";
+            s=ui.directoryPrefix;
 
         else
-            s="      ";
+            s=ui.filePrefix;
 
         s+=entries[idx].name;
 
@@ -495,6 +512,8 @@ void GUI::drawList()
 
 void GUI::drawPlayer()
 {
+    const auto &ui = UIText::strings();
+
     int width = canvas->width();
     int playerBottom = canvas->height() / 2;
     canvas->fillRect(0, kHeaderHeight, width, playerBottom - kHeaderHeight, TFT_BLACK);
@@ -502,7 +521,7 @@ void GUI::drawPlayer()
 
     canvas->setTextFont(2);
     canvas->setTextColor(TFT_WHITE);
-    canvas->drawCentreString("Now Playing", width / 2, kPlayerTitleY, 2);
+    canvas->drawCentreString(ui.playerNowPlaying, width / 2, kPlayerTitleY, 2);
 
     canvas->setTextFont(1);
     canvas->setTextColor(TFT_CYAN);
@@ -511,15 +530,15 @@ void GUI::drawPlayer()
     if (!playerDiscText.isEmpty())
     {
         canvas->setTextColor(TFT_LIGHTGREY);
-        canvas->drawCentreString(ellipsize(String("Disc: ") + playerDiscText, 36), width / 2, kPlayerDiscY, 1);
+        canvas->drawCentreString(ellipsize(String(ui.playerDiscPrefix) + playerDiscText, 36), width / 2, kPlayerDiscY, 1);
     }
 
     canvas->setTextFont(1);
     canvas->setTextColor(TFT_WHITE);
-    String timeLine = "Elapsed: ";
-    timeLine += (playerTotalSec > 0) ? formatTime(playerCurrentSec) : String("--:--");
-    timeLine += " - Total: ";
-    timeLine += (playerTotalSec > 0) ? formatTime(playerTotalSec) : String("--:--");
+    String timeLine = ui.playerElapsedPrefix;
+    timeLine += (playerTotalSec > 0) ? formatTime(playerCurrentSec) : String(ui.timeUnknown);
+    timeLine += ui.playerTotalPrefix;
+    timeLine += (playerTotalSec > 0) ? formatTime(playerTotalSec) : String(ui.timeUnknown);
     canvas->drawCentreString(timeLine, width / 2, kPlayerTimeY, 1);
 
     drawProgressBar();
@@ -599,6 +618,8 @@ void GUI::drawVuMeters()
 
 void GUI::drawPlayerControls()
 {
+    const auto &ui = UIText::strings();
+
     int width = canvas->width();
     int buttonTop = canvas->height() / 2;
     int buttonAreaHeight = canvas->height() - buttonTop;
@@ -613,14 +634,14 @@ void GUI::drawPlayerControls()
 
     const ButtonLabel labels[6] = {
         {nullptr, TFT_DARKCYAN},
-        {"VOL+", TFT_DARKGREEN},
-        {"PREV", TFT_DARKCYAN},
-        {"NEXT", TFT_ORANGE},
-        {"STOP", TFT_RED},
-        {"VOL-", TFT_DARKGREEN}
+        {ui.buttonVolUp, TFT_DARKGREEN},
+        {ui.buttonPrev, TFT_DARKCYAN},
+        {ui.buttonNext, TFT_ORANGE},
+        {ui.buttonStop, TFT_RED},
+        {ui.buttonVolDown, TFT_DARKGREEN}
     };
 
-    String pauseLabel = playerPaused ? "RESUME" : "PAUSE";
+    String pauseLabel = playerPaused ? ui.buttonResume : ui.buttonPause;
     uint16_t pauseColor = playerPaused ? TFT_MAROON : TFT_DARKCYAN;
 
     for(int row=0; row<kButtonRows; ++row)
@@ -665,7 +686,7 @@ int GUI::findEntryIndexByName(const String &name) const
     return -1;
 }
 
-bool GUI::queueTrackPath(const String &path)
+bool GUI::queueTrackPath(const String &path, bool markForPlayback)
 {
     String folder = folderFromPath(path);
     String fileName = fileNameFromPath(path);
@@ -689,11 +710,16 @@ bool GUI::queueTrackPath(const String &path)
     playerCurrentSec = 0;
     playerTotalSec = 0;
     playerPaused = false;
-    fileChosen = true;
+    fileChosen = markForPlayback;
     updatePlayerDisplayText();
-    if (screen == 1)
+    if (markForPlayback && screen == 1)
         drawScreen(1);
     return true;
+}
+
+bool GUI::restoreTrackPath(const String &path)
+{
+    return queueTrackPath(path, false);
 }
 
 bool GUI::firstPlayableTrackInFolder(const String &folder, String &outPath) const
@@ -773,6 +799,8 @@ bool GUI::siblingFolderTrack(const String &currentFolder, int direction, String 
 
 void GUI::drawButtons()
 {
+    const auto &ui = UIText::strings();
+
     int width = canvas->width();
     int buttonAreaHeight = canvas->height() / 2;
     int buttonTop = canvas->height() - buttonAreaHeight;
@@ -786,12 +814,12 @@ void GUI::drawButtons()
     };
 
     const ButtonLabel labels[6] = {
-        {"UP", TFT_DARKGREEN},
-        {"BACK", TFT_DARKCYAN},
+        {ui.buttonUp, TFT_DARKGREEN},
+        {ui.buttonBack, TFT_DARKCYAN},
         {"", TFT_DARKGREY},
         {"", TFT_DARKGREY},
-        {"DOWN", TFT_DARKGREEN},
-        {"OPEN", TFT_ORANGE}
+        {ui.buttonDown, TFT_DARKGREEN},
+        {ui.buttonOpen, TFT_ORANGE}
     };
 
     for(int row=0; row<kButtonRows; ++row)
