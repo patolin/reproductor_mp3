@@ -5,6 +5,8 @@
 #include <SD.h>
 #include <vector>
 
+class CYD28_TS_Point;
+
 struct FileEntry
 {
     String name;
@@ -24,9 +26,19 @@ public:
 
     void refresh();
 
-    void touch(uint16_t x, uint16_t y);
+    void touch(const CYD28_TS_Point &point);
 
     void scroll(int delta);
+
+    void setNowPlaying(const String &filePath);
+
+    void setMetadata(const String &artist, const String &track);
+
+    void setPlaybackTime(uint32_t currentSec, uint32_t totalSec);
+
+    int currentScreen() const;
+
+    void setVolumePercent(uint8_t percent);
 
     bool hasSelectedFile();
 
@@ -48,8 +60,28 @@ private:
     bool fileChosen;
     String chosenFile;
     String statusMessage;
+    String nowPlayingPath;
+    String metadataArtist;
+    String metadataTrack;
+    String playerArtistText;
+    String playerTitleText;
+    String playerDiscText;
+    uint32_t playerCurrentSec;
+    uint32_t playerTotalSec;
+    uint8_t volumePercent;
+    bool playerPaused;
 
     bool loadDirectory(String path);
+
+    bool loadDirectoryEntries(String path, std::vector<FileEntry> &outEntries) const;
+
+    int findEntryIndexByName(const String &name) const;
+
+    bool queueTrackPath(const String &path);
+
+    bool firstPlayableTrackInFolder(const String &folder, String &outPath) const;
+
+    bool siblingFolderTrack(const String &currentFolder, int direction, String &outPath) const;
 
     void drawHeader();
 
@@ -57,7 +89,9 @@ private:
 
     void drawPlayer();
 
-    void drawFooter();
+    void drawPlayerControls();
+
+    void drawProgressBar();
 
     void drawButtons();
 
@@ -65,8 +99,27 @@ private:
 
     bool goBack();
 
+    bool playPreviousTrack();
+
+    bool playNextTrack();
+
     int visibleRows() const;
 
     void clampScrolling();
+
+    void updatePlayerDisplayText();
+
+    String ellipsize(const String &text, size_t maxChars) const;
+
+    String formatRemainingTime() const;
+
+    int buttonIndexFromPoint(const CYD28_TS_Point &point) const;
+
+    bool isInButtonArea(const CYD28_TS_Point &point) const;
+
+    void handleButton(int buttonIndex);
+
+    uint32_t lastTapMs;
+
     int screen;
 };
