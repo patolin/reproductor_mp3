@@ -75,7 +75,11 @@ String ellipsizeText(const String &text, size_t maxChars)
 }
 
 GUI::GUI(TFT_eSPI &display)
-: tft(display)
+: tft(display),
+  playerSprite(&display),
+  canvas(&display),
+  playerSpriteReady(false),
+  playerSpriteAttempted(false)
 {
     currentPath="/";
     selected=0;
@@ -108,7 +112,6 @@ bool GUI::begin()
 void GUI::refresh()
 {
     loadDirectory(currentPath);
-    Serial.println("refresh");
 }
 
 void GUI::setNowPlaying(const String &filePath)
@@ -148,6 +151,17 @@ void GUI::setVolumePercent(uint8_t percent)
 void GUI::drawScreen(int screen)
 {
     this->screen=screen;
+    canvas = &tft;
+
+    if (screen == 1 && ensurePlayerSprite())
+    {
+        canvas = &playerSprite;
+        draw();
+        playerSprite.pushSprite(0, 0);
+        canvas = &tft;
+        return;
+    }
+
     draw();
 }
 
@@ -235,6 +249,29 @@ void GUI::updatePlayerDisplayText()
     playerArtistText = "No track";
     playerTitleText = "selected";
     playerDiscText = "";
+}
+
+bool GUI::ensurePlayerSprite()
+{
+    if (playerSpriteReady)
+        return true;
+
+    if (playerSpriteAttempted)
+        return false;
+
+    playerSpriteAttempted = true;
+
+    playerSprite.setColorDepth(8);
+
+    if (!playerSprite.created())
+    {
+        if (!playerSprite.createSprite(tft.width(), tft.height()))
+            return false;
+    }
+
+    playerSprite.fillSprite(TFT_BLACK);
+    playerSpriteReady = true;
+    return true;
 }
 
 String GUI::ellipsize(const String &text, size_t maxChars) const
@@ -328,10 +365,9 @@ bool GUI::loadDirectory(String path)
 
 void GUI::draw()
 {
-    tft.fillScreen(TFT_BLACK);
+    canvas->fillScreen(TFT_BLACK);
 
     drawHeader();
-    Serial.println("screen: "+String(screen));
     switch (screen) {
         case 0:
             drawList();
@@ -344,50 +380,50 @@ void GUI::draw()
 
 void GUI::drawHeader()
 {
-    tft.fillRect(0,0,tft.width(),kHeaderHeight,TFT_BLUE);
+    canvas->fillRect(0,0,canvas->width(),kHeaderHeight,TFT_BLUE);
 
-    tft.setTextFont(1);
-    tft.setTextColor(TFT_WHITE,TFT_BLUE);
+    canvas->setTextFont(1);
+    canvas->setTextColor(TFT_WHITE,TFT_BLUE);
     String headerText = (screen == 1) ? String("PLAYER") : currentPath;
-    tft.drawString(headerText,4,4);
+    canvas->drawString(headerText,4,4);
 
     if (screen == 1)
     {
-        int width = tft.width();
+        int width = canvas->width();
         int barX = 88;
         int barY = 8;
         int barW = width - barX - 6;
         int barH = 8;
 
-        tft.drawRect(barX, barY, barW, barH, TFT_WHITE);
+        canvas->drawRect(barX, barY, barW, barH, TFT_WHITE);
         int fillW = (barW - 2) * volumePercent / 100;
         if (fillW > 0)
-            tft.fillRect(barX + 1, barY + 1, fillW, barH - 2, TFT_ORANGE);
+            canvas->fillRect(barX + 1, barY + 1, fillW, barH - 2, TFT_ORANGE);
     }
 
     if(screen == 0 && !statusMessage.isEmpty())
     {
-        tft.setTextFont(1);
-        tft.setTextDatum(TL_DATUM);
-        tft.setTextColor(TFT_YELLOW, TFT_BLUE);
-        tft.drawString(statusMessage, 4, 12);
+        canvas->setTextFont(1);
+        canvas->setTextDatum(TL_DATUM);
+        canvas->setTextColor(TFT_YELLOW, TFT_BLUE);
+        canvas->drawString(statusMessage, 4, 12);
     }
 }
 
 void GUI::drawList()
 {
-    int width = tft.width();
+    int width = canvas->width();
     int y = kHeaderHeight;
-    int buttonAreaHeight = tft.height() / 2;
-    int listBottom = tft.height() - buttonAreaHeight;
+    int buttonAreaHeight = canvas->height() / 2;
+    int listBottom = canvas->height() - buttonAreaHeight;
 
     int rows=visibleRows();
 
     if(entries.empty())
     {
-        tft.setTextFont(2);
-        tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        tft.drawCentreString(statusMessage.isEmpty() ? "No entries" : statusMessage,
+        canvas->setTextFont(2);
+        canvas->setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+        canvas->drawCentreString(statusMessage.isEmpty() ? "No entries" : statusMessage,
                              width / 2,
                              (listBottom + kHeaderHeight) / 2,
                              2);
@@ -405,11 +441,11 @@ void GUI::drawList()
             break;
 
         uint16_t rowColor = (idx == selected) ? TFT_DARKGREEN : TFT_BLACK;
-        tft.fillRect(0,y,width,kListRowHeight,rowColor);
-        tft.drawFastHLine(0, y + kListRowHeight - 1, width, TFT_DARKGREY);
+        canvas->fillRect(0,y,width,kListRowHeight,rowColor);
+        canvas->drawFastHLine(0, y + kListRowHeight - 1, width, TFT_DARKGREY);
 
-        tft.setTextFont(1);
-        tft.setTextColor(TFT_WHITE, rowColor);
+        canvas->setTextFont(1);
+        canvas->setTextColor(TFT_WHITE, rowColor);
 
         String s;
 
@@ -421,40 +457,39 @@ void GUI::drawList()
 
         s+=entries[idx].name;
 
-        tft.drawString(s,5,y+4);
-        Serial.println("Drawing entry: "+s);
+        canvas->drawString(s,5,y+4);
         y+=kListRowHeight;
     }
 }
 
 void GUI::drawPlayer()
 {
-    int width = tft.width();
-    int playerBottom = tft.height() / 2;
-    tft.fillRect(0, kHeaderHeight, width, playerBottom - kHeaderHeight, TFT_BLACK);
-    tft.drawFastHLine(0, playerBottom - 1, width, TFT_DARKGREY);
+    int width = canvas->width();
+    int playerBottom = canvas->height() / 2;
+    canvas->fillRect(0, kHeaderHeight, width, playerBottom - kHeaderHeight, TFT_BLACK);
+    canvas->drawFastHLine(0, playerBottom - 1, width, TFT_DARKGREY);
 
-    tft.setTextFont(2);
-    tft.setTextColor(TFT_WHITE);
-    tft.drawCentreString("Now Playing", width / 2, 34, 2);
+    canvas->setTextFont(2);
+    canvas->setTextColor(TFT_WHITE);
+    canvas->drawCentreString("Now Playing", width / 2, 34, 2);
 
-    tft.setTextFont(1);
-    tft.setTextColor(TFT_CYAN);
-    tft.drawCentreString(ellipsize(playerArtistText, 36), width / 2, 52, 1);
-    tft.drawCentreString(ellipsize(playerTitleText, 36), width / 2, 66, 1);
+    canvas->setTextFont(1);
+    canvas->setTextColor(TFT_CYAN);
+    canvas->drawCentreString(ellipsize(playerArtistText, 36), width / 2, 52, 1);
+    canvas->drawCentreString(ellipsize(playerTitleText, 36), width / 2, 66, 1);
     if (!playerDiscText.isEmpty())
     {
-        tft.setTextColor(TFT_LIGHTGREY);
-        tft.drawCentreString(ellipsize(String("Disc: ") + playerDiscText, 36), width / 2, 80, 1);
+        canvas->setTextColor(TFT_LIGHTGREY);
+        canvas->drawCentreString(ellipsize(String("Disc: ") + playerDiscText, 36), width / 2, 80, 1);
     }
 
-    tft.setTextFont(1);
-    tft.setTextColor(TFT_WHITE);
+    canvas->setTextFont(1);
+    canvas->setTextColor(TFT_WHITE);
     String timeLine = "Elapsed: ";
     timeLine += (playerTotalSec > 0) ? formatTime(playerCurrentSec) : String("--:--");
     timeLine += " - Total: ";
     timeLine += (playerTotalSec > 0) ? formatTime(playerTotalSec) : String("--:--");
-    tft.drawCentreString(timeLine, width / 2, 96, 1);
+    canvas->drawCentreString(timeLine, width / 2, 96, 1);
 
     drawProgressBar();
     drawPlayerControls();
@@ -462,7 +497,7 @@ void GUI::drawPlayer()
 
 void GUI::drawProgressBar()
 {
-    int width = tft.width();
+    int width = canvas->width();
     int barX = 16;
     int barY = 111;
     int barW = width - 32;
@@ -472,19 +507,19 @@ void GUI::drawProgressBar()
     if (playerTotalSec > 0 && playerCurrentSec <= playerTotalSec)
         progressPercent = (playerCurrentSec * 100UL) / playerTotalSec;
 
-    tft.setTextFont(1);
-    tft.setTextColor(TFT_WHITE);
-    tft.drawRect(barX, barY, barW, barH, TFT_WHITE);
+    canvas->setTextFont(1);
+    canvas->setTextColor(TFT_WHITE);
+    canvas->drawRect(barX, barY, barW, barH, TFT_WHITE);
     int fillW = (barW - 2) * progressPercent / 100;
     if (fillW > 0)
-        tft.fillRect(barX + 1, barY + 1, fillW, barH - 2, TFT_GREEN);
+        canvas->fillRect(barX + 1, barY + 1, fillW, barH - 2, TFT_GREEN);
 }
 
 void GUI::drawPlayerControls()
 {
-    int width = tft.width();
-    int buttonTop = tft.height() / 2;
-    int buttonAreaHeight = tft.height() - buttonTop;
+    int width = canvas->width();
+    int buttonTop = canvas->height() / 2;
+    int buttonAreaHeight = canvas->height() - buttonTop;
     int cellWidth = width / kButtonCols;
     int cellHeight = buttonAreaHeight / kButtonRows;
 
@@ -521,13 +556,13 @@ void GUI::drawPlayerControls()
                 color = pauseColor;
             }
 
-            tft.fillRect(x, y, cellWidth, cellHeight, color);
-            tft.drawRect(x, y, cellWidth, cellHeight, TFT_BLACK);
+            canvas->fillRect(x, y, cellWidth, cellHeight, color);
+            canvas->drawRect(x, y, cellWidth, cellHeight, TFT_BLACK);
             if (text && text[0] != '\0')
             {
-                tft.setTextColor(TFT_WHITE, color);
-                tft.setTextFont(2);
-                tft.drawCentreString(text, x + cellWidth / 2, y + (cellHeight / 2) - 8, 2);
+                canvas->setTextColor(TFT_WHITE, color);
+                canvas->setTextFont(2);
+                canvas->drawCentreString(text, x + cellWidth / 2, y + (cellHeight / 2) - 8, 2);
             }
         }
     }
@@ -575,7 +610,7 @@ bool GUI::queueTrackPath(const String &path)
     fileChosen = true;
     updatePlayerDisplayText();
     if (screen == 1)
-        drawPlayer();
+        drawScreen(1);
     return true;
 }
 
@@ -656,9 +691,9 @@ bool GUI::siblingFolderTrack(const String &currentFolder, int direction, String 
 
 void GUI::drawButtons()
 {
-    int width = tft.width();
-    int buttonAreaHeight = tft.height() / 2;
-    int buttonTop = tft.height() - buttonAreaHeight;
+    int width = canvas->width();
+    int buttonAreaHeight = canvas->height() / 2;
+    int buttonTop = canvas->height() - buttonAreaHeight;
     int cellWidth = width / kButtonCols;
     int cellHeight = buttonAreaHeight / kButtonRows;
 
@@ -685,13 +720,13 @@ void GUI::drawButtons()
             int x = col * cellWidth;
             int y = buttonTop + row * cellHeight;
 
-            tft.fillRect(x, y, cellWidth, cellHeight, labels[index].color);
-            tft.drawRect(x, y, cellWidth, cellHeight, TFT_BLACK);
+            canvas->fillRect(x, y, cellWidth, cellHeight, labels[index].color);
+            canvas->drawRect(x, y, cellWidth, cellHeight, TFT_BLACK);
             if (labels[index].text[0] != '\0')
             {
-                tft.setTextColor(TFT_WHITE, labels[index].color);
-                tft.setTextFont(2);
-                tft.drawCentreString(labels[index].text, x + cellWidth / 2, y + (cellHeight / 2) - 8, 2);
+                canvas->setTextColor(TFT_WHITE, labels[index].color);
+                canvas->setTextFont(2);
+                canvas->drawCentreString(labels[index].text, x + cellWidth / 2, y + (cellHeight / 2) - 8, 2);
             }
         }
     }
@@ -732,7 +767,7 @@ void GUI::handleButton(int buttonIndex)
             case 1:
                 audioPauseResume();
                 playerPaused = !playerPaused;
-                drawPlayer();
+                drawScreen(1);
                 break;
             case 2:
             {
@@ -743,7 +778,7 @@ void GUI::handleButton(int buttonIndex)
                 uint8_t rawVol = maxVol ? (vol * maxVol + 50) / 100 : vol;
                 audioSetVolume(rawVol);
                 setVolumePercent(vol);
-                drawPlayer();
+                drawScreen(1);
                 break;
             }
             case 3:
@@ -756,7 +791,7 @@ void GUI::handleButton(int buttonIndex)
                 audioStopSong();
                 playerPaused = false;
                 setPlaybackTime(0, 0);
-                drawPlayer();
+                drawScreen(1);
                 break;
             case 6:
             {
@@ -767,7 +802,7 @@ void GUI::handleButton(int buttonIndex)
                 uint8_t rawVol = maxVol ? (vol * maxVol + 50) / 100 : vol;
                 audioSetVolume(rawVol);
                 setVolumePercent(vol);
-                drawPlayer();
+                drawScreen(1);
                 break;
             }
             default:
@@ -780,19 +815,19 @@ void GUI::handleButton(int buttonIndex)
     {
         case 1:
             scroll(-1);
-            draw();
+            drawScreen(0);
             break;
         case 2:
             goBack();
-            draw();
+            drawScreen(0);
             break;
         case 5:
             scroll(1);
-            draw();
+            drawScreen(0);
             break;
         case 6:
             enterSelection();
-            draw();
+            drawScreen(0);
             break;
         default:
             break;
@@ -810,7 +845,7 @@ void GUI::touch(const CYD28_TS_Point &point)
     if (!isInButtonArea(point))
     {
         screen = (screen == 0) ? 1 : 0;
-        draw();
+        drawScreen(screen);
         return;
     }
 

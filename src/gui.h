@@ -49,6 +49,10 @@ public:
 private:
 
     TFT_eSPI &tft;
+    TFT_eSprite playerSprite;
+    TFT_eSPI *canvas;
+    bool playerSpriteReady;
+    bool playerSpriteAttempted;
 
     std::vector<FileEntry> entries;
 
@@ -108,6 +112,7 @@ private:
     void clampScrolling();
 
     void updatePlayerDisplayText();
+    bool ensurePlayerSprite();
 
     String ellipsize(const String &text, size_t maxChars) const;
 
