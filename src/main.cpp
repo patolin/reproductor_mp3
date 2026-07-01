@@ -32,6 +32,7 @@
 #include "console.h"
 #include <TFT_eSPI.h>
 #include "gui.h"
+#include "ui_text.h"
 
 TFT_eSPI tft;
 CYD28_TouchR touch(320, 240);
@@ -134,6 +135,7 @@ void audio_showstreamtitle(const char *info)
 void setup()
 {
 	Serial.begin(115200);
+    UIText::setLanguage(UIText::Language::Spanish);
 #ifndef DUSE_BACKLIGHT_MOD
 	pinMode(21, OUTPUT);		// turn on the display backlight
 	digitalWrite(21, HIGH);
