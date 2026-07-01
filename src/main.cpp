@@ -31,6 +31,7 @@
 #include "CYD28_TouchscreenR.h"
 #include "console.h"
 #include <TFT_eSPI.h>
+#include "app_state.h"
 #include "gui.h"
 #include "ui_text.h"
 
@@ -39,12 +40,27 @@ CYD28_TouchR touch(320, 240);
 GUI gui(tft);
 
 RGBLED led;
+AppState appState;
 
 uint32_t tNow, tLast;
 portMUX_TYPE gMetadataMux = portMUX_INITIALIZER_UNLOCKED;
 char gMetadataArtist[128] = {0};
 char gMetadataTrack[128] = {0};
 volatile bool gMetadataDirty = false;
+String gRestoredTrackPath;
+uint8_t gRestoredVolumePercent = 21;
+
+uint8_t percentToRawVolume(uint8_t percent)
+{
+    uint8_t maxVol = audio.maxVolume();
+    if (maxVol == 0)
+        return percent > 100 ? 100 : percent;
+
+    if (percent > 100)
+        percent = 100;
+
+    return static_cast<uint8_t>((percent * maxVol + 50U) / 100U);
+}
 
 void storeMetadataField(char *dest, size_t destSize, const String &value)
 {
@@ -141,6 +157,7 @@ void setup()
 	digitalWrite(21, HIGH);
 #endif
     sdcard.begin();
+    appState.loadSession(gRestoredTrackPath, gRestoredVolumePercent);
     tft.init();
     tft.setRotation(0);
     touch.begin();
@@ -153,7 +170,27 @@ void setup()
 
 	//display.begin(CYD28_DISPLAY_ROT_PORT0);
 	
-	audioInit();
+    audioInit();
+
+    audioSetVolume(percentToRawVolume(gRestoredVolumePercent));
+    gRestoredVolumePercent = audioGetVolumePerCent();
+    gui.setVolumePercent(gRestoredVolumePercent);
+
+    if (!gRestoredTrackPath.isEmpty() && SD.exists(gRestoredTrackPath.c_str()))
+    {
+        if (gui.restoreTrackPath(gRestoredTrackPath))
+        {
+            gui.drawScreen(1);
+
+            char buf[256];
+            gRestoredTrackPath.toCharArray(buf, sizeof(buf));
+            if (!audioConnecttoSD(buf))
+            {
+                gui.refresh();
+                gui.drawScreen(0);
+            }
+        }
+    }
 }
 
 void loop()
@@ -197,12 +234,28 @@ void loop()
     {
         String selected = gui.selectedFile();
         Serial.println(selected);
-        gui.setNowPlaying(selected);
-        gui.drawScreen(1);
+        if (SD.exists(selected.c_str()))
+        {
+            gui.setNowPlaying(selected);
+            gui.drawScreen(1);
 
-        char buf[256];
-        selected.toCharArray(buf, 256);
-        audioConnecttoSD(buf);
+            char buf[256];
+            selected.toCharArray(buf, sizeof(buf));
+            if (audioConnecttoSD(buf))
+            {
+                appState.saveSession(selected, gui.currentVolumePercent());
+            }
+            else
+            {
+                gui.refresh();
+                gui.drawScreen(0);
+            }
+        }
+        else
+        {
+            gui.refresh();
+            gui.drawScreen(0);
+        }
     }
 
     static uint32_t lastPlayerUiMs = 0;
@@ -216,6 +269,4 @@ void loop()
             lastPlayerUiMs = now;
         }
     }
-
-
 }

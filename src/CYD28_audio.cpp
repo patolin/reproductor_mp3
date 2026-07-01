@@ -48,11 +48,10 @@ void audioTask(void *parameter)
 #else
 	audio.begin(true, I2S_DAC_CHANNEL_LEFT_EN);
 #endif
-	CreateQueues();
 	if (!audioSetQueue || !audioGetQueue)
 	{
 		log_e("queues are not initialized");
-		while (true);
+		vTaskDelete(NULL);
 	}
 	audioMessage_t audioRxTaskMessage;
 	audioMessage_t audioTxTaskMessage;

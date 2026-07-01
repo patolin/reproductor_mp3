@@ -183,6 +183,11 @@ void GUI::setVolumePercent(uint8_t percent)
     volumePercent = percent > 100 ? 100 : percent;
 }
 
+uint8_t GUI::currentVolumePercent() const
+{
+    return volumePercent;
+}
+
 void GUI::drawScreen(int screen)
 {
     this->screen=screen;
@@ -681,7 +686,7 @@ int GUI::findEntryIndexByName(const String &name) const
     return -1;
 }
 
-bool GUI::queueTrackPath(const String &path)
+bool GUI::queueTrackPath(const String &path, bool markForPlayback)
 {
     String folder = folderFromPath(path);
     String fileName = fileNameFromPath(path);
@@ -705,11 +710,16 @@ bool GUI::queueTrackPath(const String &path)
     playerCurrentSec = 0;
     playerTotalSec = 0;
     playerPaused = false;
-    fileChosen = true;
+    fileChosen = markForPlayback;
     updatePlayerDisplayText();
-    if (screen == 1)
+    if (markForPlayback && screen == 1)
         drawScreen(1);
     return true;
+}
+
+bool GUI::restoreTrackPath(const String &path)
+{
+    return queueTrackPath(path, false);
 }
 
 bool GUI::firstPlayableTrackInFolder(const String &folder, String &outPath) const
