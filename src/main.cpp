@@ -207,7 +207,7 @@ void loop()
     if (gui.currentScreen() == 1)
     {
         uint32_t now = millis();
-        if (now - lastPlayerUiMs >= 250)
+        if (now - lastPlayerUiMs >= 80)
         {
             gui.setPlaybackTime(audio.getAudioCurrentTime(), audio.getAudioFileDuration());
             gui.drawScreen(1);

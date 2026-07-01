@@ -11,6 +11,33 @@ constexpr int kListRowHeight = 24;
 constexpr int kButtonRows = 3;
 constexpr int kButtonCols = 2;
 constexpr uint8_t kVolumeStepPercent = 5;
+constexpr int kPlayerTitleY = 34;
+constexpr int kPlayerArtistY = 52;
+constexpr int kPlayerTrackY = 66;
+constexpr int kPlayerDiscY = 80;
+constexpr int kPlayerTimeY = 94;
+constexpr int kPlayerProgressY = 110;
+constexpr int kPlayerVuY = 130;
+constexpr int kPlayerVuBarHeight = 4;
+constexpr int kPlayerVuBarGap = 1;
+constexpr uint16_t kRmsFullScale = 64; // ~10 * sqrt((32767^2) >> 16)
+
+uint8_t rmsToMeterPercent(uint16_t rms)
+{
+    if (rms >= kRmsFullScale)
+        return 100;
+
+    return static_cast<uint8_t>((rms * 100U) / kRmsFullScale);
+}
+
+uint16_t vuColorForPercent(uint8_t percent)
+{
+    if (percent >= 90)
+        return TFT_RED;
+    if (percent >= 70)
+        return TFT_YELLOW;
+    return TFT_GREEN;
+}
 
 String fileNameFromPath(const String &path)
 {
@@ -97,6 +124,8 @@ GUI::GUI(TFT_eSPI &display)
     playerTotalSec=0;
     volumePercent=0;
     playerPaused=false;
+    vuLeftDisplay=0;
+    vuRightDisplay=0;
     lastTapMs=0;
 }
 
@@ -123,6 +152,8 @@ void GUI::setNowPlaying(const String &filePath)
     playerTotalSec = 0;
     volumePercent = audioGetVolumePerCent();
     playerPaused = false;
+    vuLeftDisplay = 0;
+    vuRightDisplay = 0;
     playerDiscText = folderNameFromPath(filePath);
     updatePlayerDisplayText();
 }
@@ -471,16 +502,16 @@ void GUI::drawPlayer()
 
     canvas->setTextFont(2);
     canvas->setTextColor(TFT_WHITE);
-    canvas->drawCentreString("Now Playing", width / 2, 34, 2);
+    canvas->drawCentreString("Now Playing", width / 2, kPlayerTitleY, 2);
 
     canvas->setTextFont(1);
     canvas->setTextColor(TFT_CYAN);
-    canvas->drawCentreString(ellipsize(playerArtistText, 36), width / 2, 52, 1);
-    canvas->drawCentreString(ellipsize(playerTitleText, 36), width / 2, 66, 1);
+    canvas->drawCentreString(ellipsize(playerArtistText, 36), width / 2, kPlayerArtistY, 1);
+    canvas->drawCentreString(ellipsize(playerTitleText, 36), width / 2, kPlayerTrackY, 1);
     if (!playerDiscText.isEmpty())
     {
         canvas->setTextColor(TFT_LIGHTGREY);
-        canvas->drawCentreString(ellipsize(String("Disc: ") + playerDiscText, 36), width / 2, 80, 1);
+        canvas->drawCentreString(ellipsize(String("Disc: ") + playerDiscText, 36), width / 2, kPlayerDiscY, 1);
     }
 
     canvas->setTextFont(1);
@@ -489,9 +520,10 @@ void GUI::drawPlayer()
     timeLine += (playerTotalSec > 0) ? formatTime(playerCurrentSec) : String("--:--");
     timeLine += " - Total: ";
     timeLine += (playerTotalSec > 0) ? formatTime(playerTotalSec) : String("--:--");
-    canvas->drawCentreString(timeLine, width / 2, 96, 1);
+    canvas->drawCentreString(timeLine, width / 2, kPlayerTimeY, 1);
 
     drawProgressBar();
+    drawVuMeters();
     drawPlayerControls();
 }
 
@@ -499,9 +531,9 @@ void GUI::drawProgressBar()
 {
     int width = canvas->width();
     int barX = 16;
-    int barY = 111;
+    int barY = kPlayerProgressY;
     int barW = width - 32;
-    int barH = 8;
+    int barH = 6;
     uint32_t progressPercent = 0;
 
     if (playerTotalSec > 0 && playerCurrentSec <= playerTotalSec)
@@ -513,6 +545,56 @@ void GUI::drawProgressBar()
     int fillW = (barW - 2) * progressPercent / 100;
     if (fillW > 0)
         canvas->fillRect(barX + 1, barY + 1, fillW, barH - 2, TFT_GREEN);
+}
+
+void GUI::drawVuMeters()
+{
+    uint32_t rmsLevel = audioGetRMS();
+    uint16_t leftRms = static_cast<uint16_t>((rmsLevel >> 16) & 0xFFFF);
+    uint16_t rightRms = static_cast<uint16_t>(rmsLevel & 0xFFFF);
+
+    uint8_t targetLeft = rmsToMeterPercent(leftRms);
+    uint8_t targetRight = rmsToMeterPercent(rightRms);
+
+    if (targetLeft >= vuLeftDisplay)
+        vuLeftDisplay = targetLeft;
+    else
+        vuLeftDisplay = (vuLeftDisplay > 3) ? static_cast<uint8_t>(vuLeftDisplay - 3) : targetLeft;
+
+    if (targetRight >= vuRightDisplay)
+        vuRightDisplay = targetRight;
+    else
+        vuRightDisplay = (vuRightDisplay > 3) ? static_cast<uint8_t>(vuRightDisplay - 3) : targetRight;
+
+    int width = canvas->width();
+    int barX = 28;
+    int barW = width - barX - 32;
+
+    struct MeterLine
+    {
+        const char *label;
+        uint8_t value;
+        int y;
+    };
+
+    MeterLine meters[2] = {
+        {"", vuLeftDisplay, kPlayerVuY},
+        {"", vuRightDisplay, kPlayerVuY + kPlayerVuBarHeight + kPlayerVuBarGap}
+    };
+
+    for (const auto &meter : meters)
+    {
+        canvas->setTextFont(1);
+        canvas->setTextColor(TFT_LIGHTGREY);
+        canvas->drawString(meter.label, 16, meter.y + 1);
+
+        canvas->drawRect(barX, meter.y, barW, kPlayerVuBarHeight, TFT_DARKGREY);
+        int fillW = (barW - 2) * meter.value / 100;
+        if (fillW > 0)
+        {
+            canvas->fillRect(barX + 1, meter.y + 1, fillW, kPlayerVuBarHeight - 2, vuColorForPercent(meter.value));
+        }
+    }
 }
 
 void GUI::drawPlayerControls()
