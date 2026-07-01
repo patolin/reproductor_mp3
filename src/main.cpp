@@ -25,6 +25,7 @@ char gMetadataTrack[128] = {0};
 volatile bool gMetadataDirty = false;
 String gRestoredTrackPath;
 uint8_t gRestoredVolumePercent = 21;
+volatile bool gAutoNextPending = false;
 
 constexpr uint32_t kUiIdleTimeoutMs = 30000;
 constexpr int kBacklightPin = 21;
@@ -162,6 +163,17 @@ void audio_showstreamtitle(const char *info)
     }
 }
 
+void audio_eof_mp3(const char *info)
+{
+    (void)info;
+    gAutoNextPending = true;
+}
+
+void audio_eof_stream(const char *info)
+{
+    (void)info;
+}
+
 void setup()
 {
 	Serial.begin(115200);
@@ -231,22 +243,11 @@ void loop()
         }
     }
 
-    if (gUiSleeping)
+    if (gAutoNextPending)
     {
-        gBootButtonWasPressed = bootButtonPressed;
-        return;
+        gAutoNextPending = false;
+        gui.advanceToNextTrack();
     }
-
-    // Touch controller
-    CYD28_TS_Point point;
-
-    bool touched = touchPressed(point);
-    if (touched && !gTouchWasPressed)
-    {
-        markUiActivity();
-        gui.touch(point);
-    }
-    gTouchWasPressed = touched;
 
     if (gMetadataDirty)
     {
@@ -265,6 +266,24 @@ void loop()
         {
             gui.drawScreen(1);
         }
+    }
+
+    if (!gUiSleeping)
+    {
+        // Touch controller
+        CYD28_TS_Point point;
+
+        bool touched = touchPressed(point);
+        if (touched && !gTouchWasPressed)
+        {
+            markUiActivity();
+            gui.touch(point);
+        }
+        gTouchWasPressed = touched;
+    }
+    else
+    {
+        gTouchWasPressed = false;
     }
 
     if (gui.hasSelectedFile())

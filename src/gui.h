@@ -50,6 +50,8 @@ public:
 
     bool restoreTrackPath(const String &path);
 
+    bool advanceToNextTrack();
+
 private:
 
     TFT_eSPI &tft;

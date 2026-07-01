@@ -722,6 +722,11 @@ bool GUI::restoreTrackPath(const String &path)
     return queueTrackPath(path, false);
 }
 
+bool GUI::advanceToNextTrack()
+{
+    return playNextTrack();
+}
+
 bool GUI::firstPlayableTrackInFolder(const String &folder, String &outPath) const
 {
     std::vector<FileEntry> tempEntries;
