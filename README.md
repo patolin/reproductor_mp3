@@ -1,5 +1,8 @@
-# reproductor_mp3
+# Yet Another MP3 Player (YAMP)
 Reproductor MP3 para ESP32 con pantalla CYD 2.8" y salida de audio por DAC I2S o DAC interno.
+
+## Por qué?
+Pues abrir spotify es molesto por lo lenta y pesada de la aplicación. Desde hace tiempos quería comprar un reproductor mp3 dedicado, pero aprovechando un poco de tiempo libre (y algo de IA) decidí armar uno propio, aprovechando la potencia actual de los microcontroladores
 
 ## Resumen
 Este proyecto implementa un reproductor de musica con:
@@ -13,6 +16,10 @@ Este proyecto implementa un reproductor de musica con:
 
 ## Hardware
 Configuracion pensada para una placa CYD 2.8" con ESP32.
+https://www.amazon.com/-/es/Hosyond-pantalla-resistiva-controlador-ILI9341/dp/B0D92C9MMH/ref=sr_1_3?crid=2PL94VUHTK0LW&dib=eyJ2IjoiMSJ9.iIxxc2zixmbD_rQOntfgcJjWOP5lc6ioFe4-fVR48PGi3JTw0hhSTWM7i69by9mNEbZeTdqho05nqgWU1zQHZ83WutYC-E_Ni1Is-XexZ4TqW_J_L_Qx6w302J7Bylh1EC08YGRSikVcBGzFPEazL55EgIQ9PX0nxL909gNz_0F3HKWjUiGfm5U-6WsD1IA2HvudOcPKHwDFftVc-WH77SZiDpECXlX9PiywRDEmCbY.AAoDPogaI7zEV5VjXpZFFnq54MGBqPimzdrPITpZt4M&dib_tag=se&keywords=cheap%2Byellow%2Bdisplay&qid=1782941141&sprefix=cheap%2Byellow%2Bdi%2Caps%2C226&sr=8-3&th=1
+
+Para una mejor calidad de audio, vamos a usar un DAC I2S tipo PCM5102
+https://www.amazon.com/Psiriol-5435VFFG5586/dp/B0H2F4LV46/ref=sr_1_1_sspa?__mk_es_US=%C3%85M%C3%85%C5%BD%C3%95%C3%91&crid=368XJLWXDNHOZ&dib=eyJ2IjoiMSJ9.rgc8vO5ANxLwVNAw9_l4-b3bX9zdjCnzsEv2LlI78vq6QtF3_R6R9qxFo_oVySPlG0Tgmn3NVg6eK7XjsvoOIWHvDu_FkuH9hcJo_JDV69TOktWx79aDsbUbxb8Z-b-oTFHUiTUseDEvQJPC-WjkeFWcHZl6tRv5afNYTyIy5V2GC5am9FNjfFX_wPCXbZZbyc-JE2YWlYPCFDfQdMeb9gJl3oxpMyt7fPKu6T477Nc.vl9X7XOBo2ELsyYpCYCpUEDwc09iJ-h1hSoEfN3QO5U&dib_tag=se&keywords=pcm5102&qid=1782941194&sprefix=pcm5102%2Caps%2C235&sr=8-1-spons&sp_csd=d2lkZ2V0TmFtZT1zcF9hdGY&psc=1
 
 ### Salida de audio
 El proyecto soporta dos variantes:
@@ -64,7 +71,7 @@ La pantalla tactil usa `CYD28_Touchscreen` con estos pines:
 ### Audio I2S
 En el entorno `mp3player_i2c_audio_mod`:
 
-- `BCK = GPIO4`
+- `BCK = GPIO4` (hay que romper la pista que va hacia el led RGB desde este pin)
 - `LRCLK = GPIO22`
 - `DIN = GPIO27`
 
