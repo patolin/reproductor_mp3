@@ -2,23 +2,15 @@
 
 #include <Arduino.h>
 #include <TFT_eSPI.h>
-#include <SD.h>
-#include <vector>
+#include "app_services.h"
 
 class CYD28_TS_Point;
-
-struct FileEntry
-{
-    String name;
-    bool directory;
-    uint32_t size;
-};
 
 class GUI
 {
 public:
 
-    GUI(TFT_eSPI &display);
+    GUI(TFT_eSPI &display, FileSystemService &fileSystem, AudioService &audio);
 
     bool begin();
 
@@ -55,6 +47,8 @@ public:
 private:
 
     TFT_eSPI &tft;
+    FileSystemService &fileSystem;
+    AudioService &audio;
     TFT_eSprite playerSprite;
     TFT_eSPI *canvas;
     bool playerSpriteReady;
@@ -84,8 +78,6 @@ private:
     uint8_t vuRightDisplay;
 
     bool loadDirectory(String path);
-
-    bool loadDirectoryEntries(String path, std::vector<FileEntry> &outEntries) const;
 
     int findEntryIndexByName(const String &name) const;
 

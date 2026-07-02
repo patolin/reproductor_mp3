@@ -1,6 +1,4 @@
 #include "gui.h"
-#include "CYD28_audio.h"
-#include "CYD28_SD.h"
 #include "CYD28_TouchscreenR.h"
 #include "ui_text.h"
 #include <algorithm>
@@ -103,8 +101,10 @@ String ellipsizeText(const String &text, size_t maxChars)
 }
 }
 
-GUI::GUI(TFT_eSPI &display)
+GUI::GUI(TFT_eSPI &display, FileSystemService &fileSystem, AudioService &audio)
 : tft(display),
+  fileSystem(fileSystem),
+  audio(audio),
   playerSprite(&display),
   canvas(&display),
   playerSpriteReady(false),
@@ -135,10 +135,6 @@ GUI::GUI(TFT_eSPI &display)
 
 bool GUI::begin()
 {
-    sdcard.begin();
-    
-    Serial.begin(115200);
-    Serial.println("init");
     return loadDirectory("/");
 }
 
@@ -154,7 +150,7 @@ void GUI::setNowPlaying(const String &filePath)
     metadataTrack = "";
     playerCurrentSec = 0;
     playerTotalSec = 0;
-    volumePercent = audioGetVolumePerCent();
+    volumePercent = audio.volumePercent();
     playerPaused = false;
     vuLeftDisplay = 0;
     vuRightDisplay = 0;
@@ -208,50 +204,6 @@ void GUI::drawScreen(int screen)
 int GUI::currentScreen() const
 {
     return screen;
-}
-
-bool GUI::loadDirectoryEntries(String path, std::vector<FileEntry> &outEntries) const
-{
-    outEntries.clear();
-
-    File dir = SD.open(path);
-    if (!dir || !dir.isDirectory())
-        return false;
-
-    while (true)
-    {
-        File file = dir.openNextFile();
-        if (!file)
-            break;
-
-        FileEntry e;
-        String n = file.name();
-
-        if (path != "/")
-        {
-            int p = n.lastIndexOf('/');
-            if (p >= 0)
-                n = n.substring(p + 1);
-        }
-
-        e.name = n;
-        e.directory = file.isDirectory();
-        e.size = file.size();
-        outEntries.push_back(e);
-        file.close();
-    }
-
-    dir.close();
-
-    std::sort(outEntries.begin(), outEntries.end(),
-    [](const FileEntry &a, const FileEntry &b)
-    {
-        if (a.directory != b.directory)
-            return a.directory > b.directory;
-        return a.name < b.name;
-    });
-
-    return true;
 }
 
 void GUI::updatePlayerDisplayText()
@@ -385,18 +337,17 @@ bool GUI::loadDirectory(String path)
     entries.clear();
     statusMessage="";
 
-    if (SD.cardType() == CARD_NONE)
+    if (!fileSystem.loadDirectoryEntries(path, entries))
     {
-        sdcard.begin();
-    }
-
-    if(!loadDirectoryEntries(path, entries))
-    {
-        statusMessage=ui.statusNoSdCardOrInvalidFolder;
-        currentPath=path;
-        selected=0;
-        firstVisible=0;
-        return false;
+        fileSystem.begin();
+        if (!fileSystem.loadDirectoryEntries(path, entries))
+        {
+            statusMessage=ui.statusNoSdCardOrInvalidFolder;
+            currentPath=path;
+            selected=0;
+            firstVisible=0;
+            return false;
+        }
     }
 
     currentPath=path;
@@ -568,7 +519,7 @@ void GUI::drawProgressBar()
 
 void GUI::drawVuMeters()
 {
-    uint32_t rmsLevel = audioGetRMS();
+    uint32_t rmsLevel = audio.rms();
     uint16_t leftRms = static_cast<uint16_t>((rmsLevel >> 16) & 0xFFFF);
     uint16_t rightRms = static_cast<uint16_t>(rmsLevel & 0xFFFF);
 
@@ -730,7 +681,7 @@ bool GUI::advanceToNextTrack()
 bool GUI::firstPlayableTrackInFolder(const String &folder, String &outPath) const
 {
     std::vector<FileEntry> tempEntries;
-    if (!loadDirectoryEntries(folder, tempEntries))
+    if (!fileSystem.loadDirectoryEntries(folder, tempEntries))
         return false;
 
     for (const auto &entry : tempEntries)
@@ -768,7 +719,7 @@ bool GUI::siblingFolderTrack(const String &currentFolder, int direction, String 
         String currentName = fileNameFromPath(folder);
 
         std::vector<FileEntry> parentEntries;
-        if (!loadDirectoryEntries(parent, parentEntries))
+        if (!fileSystem.loadDirectoryEntries(parent, parentEntries))
             return false;
 
         std::vector<String> folders;
@@ -880,7 +831,7 @@ void GUI::handleButton(int buttonIndex)
         switch(buttonIndex)
         {
             case 1:
-                audioPauseResume();
+                audio.pauseResume();
                 playerPaused = !playerPaused;
                 drawScreen(1);
                 break;
@@ -891,7 +842,7 @@ void GUI::handleButton(int buttonIndex)
                     vol = (vol + kVolumeStepPercent > 100) ? 100 : (vol + kVolumeStepPercent);
                 uint8_t maxVol = audio.maxVolume();
                 uint8_t rawVol = maxVol ? (vol * maxVol + 50) / 100 : vol;
-                audioSetVolume(rawVol);
+                audio.setVolumeRaw(rawVol);
                 setVolumePercent(vol);
                 drawScreen(1);
                 break;
@@ -903,7 +854,7 @@ void GUI::handleButton(int buttonIndex)
                 playNextTrack();
                 break;
             case 5:
-                audioStopSong();
+                audio.stopSong();
                 playerPaused = false;
                 setPlaybackTime(0, 0);
                 drawScreen(1);
@@ -915,7 +866,7 @@ void GUI::handleButton(int buttonIndex)
                     vol = (vol < kVolumeStepPercent) ? 0 : (vol - kVolumeStepPercent);
                 uint8_t maxVol = audio.maxVolume();
                 uint8_t rawVol = maxVol ? (vol * maxVol + 50) / 100 : vol;
-                audioSetVolume(rawVol);
+                audio.setVolumeRaw(rawVol);
                 setVolumePercent(vol);
                 drawScreen(1);
                 break;
