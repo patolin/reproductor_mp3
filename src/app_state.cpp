@@ -1,24 +1,20 @@
 #include "app_state.h"
-#include <SD.h>
 #include <cstring>
 
-bool AppState::begin()
-{
-    return true;
-}
-
-bool AppState::readState(String &trackPath, uint8_t &volumePercent)
+bool AppState::readState(FileSystemService &fileSystem, String &trackPath, uint8_t &volumePercent)
 {
     trackPath = "";
     volumePercent = kDefaultVolumePercent;
 
-    File file = SD.open(kStatePath, FILE_READ);
-    if (!file)
+    String text;
+    if (!fileSystem.readTextFile(kStatePath, text))
         return false;
 
-    while (file.available())
+    int start = 0;
+    while (start < text.length())
     {
-        String line = file.readStringUntil('\n');
+        int end = text.indexOf('\n', start);
+        String line = (end >= 0) ? text.substring(start, end) : text.substring(start);
         line.trim();
 
         if (line.startsWith(String(kKeyTrack) + "="))
@@ -34,48 +30,53 @@ bool AppState::readState(String &trackPath, uint8_t &volumePercent)
                 value = 100;
             volumePercent = static_cast<uint8_t>(value);
         }
+
+        if (end < 0)
+            break;
+        start = end + 1;
     }
 
-    file.close();
     return true;
 }
 
-bool AppState::writeState(const String &trackPath, uint8_t volumePercent)
+bool AppState::writeState(FileSystemService &fileSystem, const String &trackPath, uint8_t volumePercent)
 {
     if (volumePercent > 100)
         volumePercent = 100;
 
-    SD.remove(kTempPath);
+    String text;
+    text.reserve(trackPath.length() + 32);
+    text += kKeyTrack;
+    text += '=';
+    text += trackPath;
+    text += '\n';
+    text += kKeyVolume;
+    text += '=';
+    text += String(volumePercent);
+    text += '\n';
 
-    File file = SD.open(kTempPath, FILE_WRITE);
-    if (!file)
+    fileSystem.removeFile(kTempPath);
+
+    if (!fileSystem.writeTextFile(kTempPath, text))
         return false;
 
-    file.print(kKeyTrack);
-    file.print('=');
-    file.println(trackPath);
-    file.print(kKeyVolume);
-    file.print('=');
-    file.println(volumePercent);
-    file.flush();
-    file.close();
+    fileSystem.removeFile(kStatePath);
 
-    SD.remove(kStatePath);
-    if (!SD.rename(kTempPath, kStatePath))
+    if (!fileSystem.renameFile(kTempPath, kStatePath))
     {
-        SD.remove(kTempPath);
+        fileSystem.removeFile(kTempPath);
         return false;
     }
 
     return true;
 }
 
-bool AppState::loadSession(String &trackPath, uint8_t &volumePercent)
+bool AppState::loadSession(FileSystemService &fileSystem, String &trackPath, uint8_t &volumePercent)
 {
-    return readState(trackPath, volumePercent);
+    return readState(fileSystem, trackPath, volumePercent);
 }
 
-bool AppState::saveSession(const String &trackPath, uint8_t volumePercent)
+bool AppState::saveSession(FileSystemService &fileSystem, const String &trackPath, uint8_t volumePercent)
 {
-    return writeState(trackPath, volumePercent);
+    return writeState(fileSystem, trackPath, volumePercent);
 }

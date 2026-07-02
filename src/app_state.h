@@ -1,15 +1,14 @@
 #pragma once
 
 #include <Arduino.h>
+#include "app_services.h"
 
 class AppState
 {
 public:
-    bool begin();
+    bool loadSession(FileSystemService &fileSystem, String &trackPath, uint8_t &volumePercent);
 
-    bool loadSession(String &trackPath, uint8_t &volumePercent);
-
-    bool saveSession(const String &trackPath, uint8_t volumePercent);
+    bool saveSession(FileSystemService &fileSystem, const String &trackPath, uint8_t volumePercent);
 
 private:
     static constexpr const char *kStatePath = "/player_state.txt";
@@ -18,6 +17,6 @@ private:
     static constexpr const char *kKeyVolume = "volume";
     static constexpr uint8_t kDefaultVolumePercent = 21;
 
-    bool readState(String &trackPath, uint8_t &volumePercent);
-    bool writeState(const String &trackPath, uint8_t volumePercent);
+    bool readState(FileSystemService &fileSystem, String &trackPath, uint8_t &volumePercent);
+    bool writeState(FileSystemService &fileSystem, const String &trackPath, uint8_t volumePercent);
 };

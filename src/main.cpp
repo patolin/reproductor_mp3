@@ -2,18 +2,17 @@
 #include "SPI.h"
 #include <cstring>
 #include "CYD28_RGBled.h"
-#include "CYD28_SD.h"
 #include "CYD28_audio.h"
 #include "CYD28_TouchscreenR.h"
 #include "console.h"
 #include <TFT_eSPI.h>
+#include "app_services_impl.h"
 #include "app_state.h"
 #include "gui.h"
 #include "ui_text.h"
 
 TFT_eSPI tft;
 CYD28_TouchR touch(320, 240);
-GUI gui(tft);
 
 RGBLED led;
 AppState appState;
@@ -36,9 +35,11 @@ uint32_t gLastUiActivityMs = 0;
 bool gBootButtonWasPressed = false;
 bool gTouchWasPressed = false;
 
+GUI gui(tft, fileSystemService, audioService);
+
 uint8_t percentToRawVolume(uint8_t percent)
 {
-    uint8_t maxVol = audio.maxVolume();
+    uint8_t maxVol = audioService.maxVolume();
     if (maxVol == 0)
         return percent > 100 ? 100 : percent;
 
@@ -179,12 +180,12 @@ void setup()
 	Serial.begin(115200);
     UIText::setLanguage(UIText::Language::Spanish);
 #ifndef DUSE_BACKLIGHT_MOD
-	pinMode(kBacklightPin, OUTPUT);		// turn on the display backlight
+    pinMode(kBacklightPin, OUTPUT);		// turn on the display backlight
 	digitalWrite(kBacklightPin, HIGH);
 #endif
     pinMode(kBootButtonPin, INPUT_PULLUP);
-    sdcard.begin();
-    appState.loadSession(gRestoredTrackPath, gRestoredVolumePercent);
+    fileSystemService.begin();
+    appState.loadSession(fileSystemService, gRestoredTrackPath, gRestoredVolumePercent);
     tft.init();
     tft.setRotation(0);
     touch.begin();
@@ -199,12 +200,12 @@ void setup()
 	
     audioInit();
 
-    audioSetVolume(percentToRawVolume(gRestoredVolumePercent));
-    gRestoredVolumePercent = audioGetVolumePerCent();
+    audioService.setVolumeRaw(percentToRawVolume(gRestoredVolumePercent));
+    gRestoredVolumePercent = audioService.volumePercent();
     gui.setVolumePercent(gRestoredVolumePercent);
     gLastUiActivityMs = millis();
 
-    if (!gRestoredTrackPath.isEmpty() && SD.exists(gRestoredTrackPath.c_str()))
+    if (!gRestoredTrackPath.isEmpty() && fileSystemService.exists(gRestoredTrackPath))
     {
         if (gui.restoreTrackPath(gRestoredTrackPath))
         {
@@ -212,7 +213,7 @@ void setup()
 
             char buf[256];
             gRestoredTrackPath.toCharArray(buf, sizeof(buf));
-            if (!audioConnecttoSD(buf))
+            if (!audioService.connectToSD(buf))
             {
                 gui.refresh();
                 gui.drawScreen(0);
@@ -290,16 +291,16 @@ void loop()
     {
         String selected = gui.selectedFile();
         Serial.println(selected);
-        if (SD.exists(selected.c_str()))
+        if (fileSystemService.exists(selected))
         {
             gui.setNowPlaying(selected);
             gui.drawScreen(1);
 
             char buf[256];
             selected.toCharArray(buf, sizeof(buf));
-            if (audioConnecttoSD(buf))
+            if (audioService.connectToSD(buf))
             {
-                appState.saveSession(selected, gui.currentVolumePercent());
+                appState.saveSession(fileSystemService, selected, gui.currentVolumePercent());
             }
             else
             {
@@ -320,7 +321,7 @@ void loop()
         uint32_t now = millis();
         if (now - lastPlayerUiMs >= 80)
         {
-            gui.setPlaybackTime(audio.getAudioCurrentTime(), audio.getAudioFileDuration());
+            gui.setPlaybackTime(audioService.currentTime(), audioService.duration());
             gui.drawScreen(1);
             lastPlayerUiMs = now;
         }
