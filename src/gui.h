@@ -90,6 +90,7 @@ private:
     void drawHeader();
 
     void drawList();
+    void drawListArea();
 
     void drawPlayer();
 

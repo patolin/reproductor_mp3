@@ -365,7 +365,7 @@ void GUI::draw()
     drawHeader();
     switch (screen) {
         case 0:
-            drawList();
+            drawListArea();
             drawButtons();
             break;
         case 1:     
@@ -459,6 +459,16 @@ void GUI::drawList()
         canvas->drawString(s,5,y+4);
         y+=kListRowHeight;
     }
+}
+
+void GUI::drawListArea()
+{
+    int width = canvas->width();
+    int buttonAreaHeight = canvas->height() / 2;
+    int listBottom = canvas->height() - buttonAreaHeight;
+
+    canvas->fillRect(0, kHeaderHeight, width, listBottom - kHeaderHeight, TFT_BLACK);
+    drawList();
 }
 
 void GUI::drawPlayer()
@@ -881,19 +891,17 @@ void GUI::handleButton(int buttonIndex)
     {
         case 1:
             scroll(-1);
-            drawScreen(0);
             break;
         case 2:
-            goBack();
-            drawScreen(0);
+            if (goBack())
+                drawScreen(0);
             break;
         case 5:
             scroll(1);
-            drawScreen(0);
             break;
         case 6:
-            enterSelection();
-            drawScreen(0);
+            if (enterSelection() && !fileChosen)
+                drawScreen(0);
             break;
         default:
             break;
@@ -936,6 +944,9 @@ void GUI::scroll(int delta)
         selected=entries.size()-1;
 
     clampScrolling();
+
+    if (screen == 0)
+        drawListArea();
 }
 
 void GUI::clampScrolling()
