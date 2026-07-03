@@ -4,6 +4,10 @@ Reproductor MP3 para ESP32 con pantalla CYD 2.8" y salida de audio por DAC I2S o
 ## Por qué?
 Pues abrir spotify es molesto por lo lenta y pesada de la aplicación. Desde hace tiempos quería comprar un reproductor mp3 dedicado, pero aprovechando un poco de tiempo libre (y algo de IA) decidí armar uno propio, aprovechando la potencia actual de los microcontroladores
 
+![reproductor](imgs/reproductor.jpeg)
+
+![archivos](imgs/archivos.jpeg)
+
 ## Resumen
 Este proyecto implementa un reproductor de musica con:
 
@@ -74,6 +78,8 @@ En el entorno `mp3player_i2c_audio_mod`:
 - `BCK = GPIO4` (hay que romper la pista que va hacia el led RGB desde este pin)
 - `LRCLK = GPIO22`
 - `DIN = GPIO27`
+
+![reproductor](imgs/back.jpeg)
 
 ### Boton BOOT
 - `GPIO0`
