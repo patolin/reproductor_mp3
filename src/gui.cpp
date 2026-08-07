@@ -127,7 +127,7 @@ GUI::GUI(TFT_eSPI &display, FileSystemService &fileSystem, AudioService &audio)
     playerCurrentSec=0;
     playerTotalSec=0;
     volumePercent=0;
-    playerPaused=false;
+    playback=PlaybackState::Stopped;
     vuLeftDisplay=0;
     vuRightDisplay=0;
     lastTapMs=0;
@@ -151,7 +151,7 @@ void GUI::setNowPlaying(const String &filePath)
     playerCurrentSec = 0;
     playerTotalSec = 0;
     volumePercent = audio.volumePercent();
-    playerPaused = false;
+    playback = PlaybackState::Playing;
     vuLeftDisplay = 0;
     vuRightDisplay = 0;
     playerDiscText = folderNameFromPath(filePath);
@@ -602,6 +602,7 @@ void GUI::drawPlayerControls()
         {ui.buttonVolDown, TFT_DARKGREEN}
     };
 
+    bool playerPaused = (playback == PlaybackState::Paused);
     String pauseLabel = playerPaused ? ui.buttonResume : ui.buttonPause;
     uint16_t pauseColor = playerPaused ? TFT_MAROON : TFT_DARKCYAN;
 
@@ -670,7 +671,7 @@ bool GUI::queueTrackPath(const String &path, bool markForPlayback)
     metadataTrack = "";
     playerCurrentSec = 0;
     playerTotalSec = 0;
-    playerPaused = false;
+    playback = markForPlayback ? PlaybackState::Playing : PlaybackState::Stopped;
     fileChosen = markForPlayback;
     updatePlayerDisplayText();
     if (markForPlayback && screen == 1)
@@ -686,6 +687,25 @@ bool GUI::restoreTrackPath(const String &path)
 bool GUI::advanceToNextTrack()
 {
     return playNextTrack();
+}
+
+GUI::PlaybackState GUI::playbackState() const
+{
+    return playback;
+}
+
+bool GUI::isPlaybackActive() const
+{
+    return playback == PlaybackState::Playing;
+}
+
+void GUI::setPlaybackStopped()
+{
+    playback = PlaybackState::Stopped;
+    playerCurrentSec = 0;
+    playerTotalSec = 0;
+    vuLeftDisplay = 0;
+    vuRightDisplay = 0;
 }
 
 bool GUI::firstPlayableTrackInFolder(const String &folder, String &outPath) const
@@ -842,7 +862,7 @@ void GUI::handleButton(int buttonIndex)
         {
             case 1:
                 audio.pauseResume();
-                playerPaused = !playerPaused;
+                playback = (playback == PlaybackState::Paused) ? PlaybackState::Playing : PlaybackState::Paused;
                 drawScreen(1);
                 break;
             case 2:
@@ -865,8 +885,7 @@ void GUI::handleButton(int buttonIndex)
                 break;
             case 5:
                 audio.stopSong();
-                playerPaused = false;
-                setPlaybackTime(0, 0);
+                setPlaybackStopped();
                 drawScreen(1);
                 break;
             case 6:

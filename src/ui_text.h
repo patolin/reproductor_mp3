@@ -37,6 +37,8 @@ struct Strings
     const char *buttonBack;
     const char *buttonDown;
     const char *buttonOpen;
+    const char *standbyPromptLine1;
+    const char *standbyPromptLine2;
 };
 
 void setLanguage(Language language);

@@ -31,7 +31,9 @@ constexpr Strings kEnglish = {
     "UP",
     "BACK",
     "DOWN",
-    "OPEN"
+    "OPEN",
+    "Press and hold the button",
+    "to power on"
 };
 
 constexpr Strings kSpanish = {
@@ -61,7 +63,9 @@ constexpr Strings kSpanish = {
     "ARRIBA",
     "ATRAS",
     "ABAJO",
-    "ABRIR"
+    "ABRIR",
+    "Mantenga presionado",
+    "el boton para encender"
 };
 
 Language gLanguage = Language::Spanish;
