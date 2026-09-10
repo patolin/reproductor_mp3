@@ -46,7 +46,8 @@ La configuracion activa por defecto en `platformio.ini` es la de I2S:
 El boton BOOT del reverso de la pantalla se usa para:
 
 - Despertar la interfaz cuando esta en reposo.
-- Apagar la interfaz manualmente cuando esta activa.
+- Apagar manualmente la retroiluminacion si la musica esta sonando.
+- Entrar en standby de bajo consumo si la musica esta en pausa o detenida.
 
 ## Conexion sugerida
 
@@ -177,17 +178,19 @@ La pantalla de reproduccion muestra:
 ## Ahorro de energia
 Si no hay interaccion tactil durante 30 segundos:
 
-- Se apaga la retroiluminacion.
-- Se deshabilita la lectura del touch.
+- Si la musica esta sonando, se apaga la retroiluminacion y se deshabilita la lectura del touch.
+- Si la musica esta en pausa o detenida, el equipo entra en standby de bajo consumo.
 
 Para volver:
 
-- Pulsar el boton BOOT.
+- Si solo se apago la retroiluminacion, pulsar el boton BOOT.
+- Si el equipo entro en standby, mantener pulsado el boton BOOT durante 5 segundos.
 
 El mismo boton BOOT tambien funciona como interruptor:
 
-- Si la interfaz esta activa, la apaga.
-- Si esta dormida, la despierta.
+- Si la musica esta sonando y la interfaz esta activa, apaga la retroiluminacion.
+- Si la retroiluminacion esta apagada, vuelve a encenderla.
+- Si la musica esta en pausa o detenida, envia el equipo a standby.
 
 ## Consola serial
 El proyecto incluye comandos por serial a traves de `SimpleCLI`.

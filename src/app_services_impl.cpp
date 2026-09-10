@@ -4,6 +4,7 @@
 #include "CYD28_audio.h"
 #include <SD.h>
 #include <algorithm>
+#include <ff.h>
 
 namespace
 {
@@ -37,15 +38,40 @@ public:
             FileEntry entry;
             String name = file.name();
 
-            if (path != "/")
+            int separator = name.lastIndexOf('/');
+            if (separator >= 0)
+                name = name.substring(separator + 1);
+
+            String lowerName = name;
+            lowerName.toLowerCase();
+            const bool directory = file.isDirectory();
+            if (name.startsWith(".") ||
+                lowerName == "system volume information" ||
+                lowerName == "$recycle.bin" ||
+                lowerName == "recycler" ||
+                lowerName == "recycled" ||
+                (!directory && !lowerName.endsWith(".mp3")))
             {
-                int separator = name.lastIndexOf('/');
-                if (separator >= 0)
-                    name = name.substring(separator + 1);
+                file.close();
+                continue;
+            }
+
+            // SD is the application's first and only mounted FAT volume (drive 0).
+            // Arduino File does not expose the FAT hidden/system attributes.
+            String fatPath = "0:" + path;
+            if (!fatPath.endsWith("/"))
+                fatPath += '/';
+            fatPath += name;
+            FILINFO info;
+            if (f_stat(fatPath.c_str(), &info) != FR_OK ||
+                (info.fattrib & (AM_HID | AM_SYS)))
+            {
+                file.close();
+                continue;
             }
 
             entry.name = name;
-            entry.directory = file.isDirectory();
+            entry.directory = directory;
             entry.size = file.size();
             outEntries.push_back(entry);
             file.close();

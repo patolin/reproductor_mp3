@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <esp_sleep.h>
 #include "SPI.h"
 #include <cstring>
 #include "CYD28_RGBled.h"
@@ -27,6 +28,8 @@ uint8_t gRestoredVolumePercent = 21;
 volatile bool gAutoNextPending = false;
 
 constexpr uint32_t kUiIdleTimeoutMs = 30000;
+constexpr uint32_t kWakeHoldMs = 5000;
+constexpr uint32_t kStandbyPromptMs = 1500;
 constexpr int kBacklightPin = 21;
 constexpr int kBootButtonPin = 0;
 
@@ -34,6 +37,7 @@ bool gUiSleeping = false;
 uint32_t gLastUiActivityMs = 0;
 bool gBootButtonWasPressed = false;
 bool gTouchWasPressed = false;
+RTC_DATA_ATTR bool gWakeHoldRequired = false;
 
 GUI gui(tft, fileSystemService, audioService);
 
@@ -49,6 +53,15 @@ uint8_t percentToRawVolume(uint8_t percent)
     return static_cast<uint8_t>((percent * maxVol + 50U) / 100U);
 }
 
+void setBacklightEnabled(bool enabled)
+{
+#ifndef DUSE_BACKLIGHT_MOD
+    digitalWrite(kBacklightPin, enabled ? HIGH : LOW);
+#else
+    (void)enabled;
+#endif
+}
+
 void setUiSleeping(bool sleeping)
 {
     if (gUiSleeping == sleeping)
@@ -58,15 +71,11 @@ void setUiSleeping(bool sleeping)
 
     if (sleeping)
     {
-#ifndef DUSE_BACKLIGHT_MOD
-        digitalWrite(kBacklightPin, LOW);
-#endif
+        setBacklightEnabled(false);
         return;
     }
 
-#ifndef DUSE_BACKLIGHT_MOD
-    digitalWrite(kBacklightPin, HIGH);
-#endif
+    setBacklightEnabled(true);
     gui.drawScreen(gui.currentScreen());
 }
 
@@ -76,6 +85,56 @@ void markUiActivity()
 
     if (gUiSleeping)
         setUiSleeping(false);
+}
+
+void showStandbyPrompt()
+{
+    const auto &ui = UIText::strings();
+
+    setUiSleeping(false);
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextFont(2);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    int centerX = tft.width() / 2;
+    int centerY = tft.height() / 2;
+    int lineGap = 18;
+    tft.drawCentreString(ui.standbyPromptLine1, centerX, centerY - lineGap / 2, 2);
+    tft.drawCentreString(ui.standbyPromptLine2, centerX, centerY + lineGap / 2, 2);
+    tft.setTextDatum(TL_DATUM);
+    delay(kStandbyPromptMs);
+}
+
+void enterStandby(bool showPrompt = true)
+{
+    if (showPrompt)
+        showStandbyPrompt();
+
+    setUiSleeping(true);
+    gTouchWasPressed = false;
+    gWakeHoldRequired = true;
+    esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(kBootButtonPin), 0);
+    delay(50);
+    esp_deep_sleep_start();
+}
+
+void enforceWakeHoldIfNeeded()
+{
+    esp_sleep_wakeup_cause_t wakeCause = esp_sleep_get_wakeup_cause();
+    if (!(gWakeHoldRequired && wakeCause == ESP_SLEEP_WAKEUP_EXT0))
+        return;
+
+    uint32_t holdStartMs = millis();
+    while (millis() - holdStartMs < kWakeHoldMs)
+    {
+        if (digitalRead(kBootButtonPin) != LOW)
+        {
+            enterStandby(false);
+        }
+        delay(10);
+    }
+
+    gWakeHoldRequired = false;
 }
 
 void storeMetadataField(char *dest, size_t destSize, const String &value)
@@ -181,9 +240,10 @@ void setup()
     UIText::setLanguage(UIText::Language::Spanish);
 #ifndef DUSE_BACKLIGHT_MOD
     pinMode(kBacklightPin, OUTPUT);		// turn on the display backlight
-	digitalWrite(kBacklightPin, HIGH);
+	setBacklightEnabled(true);
 #endif
     pinMode(kBootButtonPin, INPUT_PULLUP);
+    enforceWakeHoldIfNeeded();
     fileSystemService.begin();
     appState.loadSession(fileSystemService, gRestoredTrackPath, gRestoredVolumePercent);
     tft.init();
@@ -215,11 +275,19 @@ void setup()
             gRestoredTrackPath.toCharArray(buf, sizeof(buf));
             if (!audioService.connectToSD(buf))
             {
+                gui.setPlaybackStopped();
                 gui.refresh();
                 gui.drawScreen(0);
             }
+            else
+            {
+                gui.setNowPlaying(gRestoredTrackPath);
+                gui.drawScreen(1);
+            }
         }
     }
+
+    gBootButtonWasPressed = (digitalRead(kBootButtonPin) == LOW);
 }
 
 void loop()
@@ -238,16 +306,21 @@ void loop()
             markUiActivity();
             gTouchWasPressed = false;
         }
-        else
+        else if (gui.isPlaybackActive())
         {
             setUiSleeping(true);
+        }
+        else
+        {
+            enterStandby();
         }
     }
 
     if (gAutoNextPending)
     {
         gAutoNextPending = false;
-        gui.advanceToNextTrack();
+        if (!gui.advanceToNextTrack())
+            gui.setPlaybackStopped();
     }
 
     if (gMetadataDirty)
@@ -304,12 +377,14 @@ void loop()
             }
             else
             {
+                gui.setPlaybackStopped();
                 gui.refresh();
                 gui.drawScreen(0);
             }
         }
         else
         {
+            gui.setPlaybackStopped();
             gui.refresh();
             gui.drawScreen(0);
         }
@@ -329,7 +404,10 @@ void loop()
 
     if (millis() - gLastUiActivityMs >= kUiIdleTimeoutMs)
     {
-        setUiSleeping(true);
+        if (gui.isPlaybackActive())
+            setUiSleeping(true);
+        else
+            enterStandby();
     }
 
     gBootButtonWasPressed = bootButtonPressed;

@@ -9,6 +9,12 @@ class CYD28_TS_Point;
 class GUI
 {
 public:
+    enum class PlaybackState : uint8_t
+    {
+        Stopped = 0,
+        Playing,
+        Paused
+    };
 
     GUI(TFT_eSPI &display, FileSystemService &fileSystem, AudioService &audio);
 
@@ -44,6 +50,12 @@ public:
 
     bool advanceToNextTrack();
 
+    PlaybackState playbackState() const;
+
+    bool isPlaybackActive() const;
+
+    void setPlaybackStopped();
+
 private:
 
     TFT_eSPI &tft;
@@ -73,7 +85,7 @@ private:
     uint32_t playerCurrentSec;
     uint32_t playerTotalSec;
     uint8_t volumePercent;
-    bool playerPaused;
+    PlaybackState playback;
     uint8_t vuLeftDisplay;
     uint8_t vuRightDisplay;
 
